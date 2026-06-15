@@ -1,0 +1,6 @@
+numpy>=1.25.0
+opencv-python
+pillow
+safetensors>=0.4.2
+scipy
+tqdm

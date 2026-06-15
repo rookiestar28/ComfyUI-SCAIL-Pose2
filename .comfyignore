@@ -1,0 +1,7 @@
+# Development and validation files are tracked for contributors but are not
+# required in the Comfy Registry runtime archive.
+.github/
+.gitattributes
+.pre-commit-config.yaml
+tests/
+scripts/

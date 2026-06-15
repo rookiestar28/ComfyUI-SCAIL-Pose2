@@ -1,0 +1,104 @@
+{
+  "schema": "scail_pose2.workflow_skeleton.v1",
+  "title": "Wan SCAIL v1 Pose Control Skeleton",
+  "execution": "static_only",
+  "live_generation": "deferred",
+  "nodes": [
+    {
+      "id": "nlf_render",
+      "class_type": "RenderNLFPoses",
+      "role": "pose_image_source",
+      "outputs": {
+        "image": "IMAGE",
+        "mask": "MASK"
+      }
+    },
+    {
+      "id": "scail_pose2_adapter",
+      "class_type": "SCAILPose2WanSCAILImages",
+      "role": "validated_passthrough_adapter"
+    },
+    {
+      "id": "wan_empty_embeds",
+      "class_type": "WanVideoEmptyEmbeds",
+      "role": "wrapper_base_embeds"
+    },
+    {
+      "id": "wan_clip_vision",
+      "class_type": "WanVideoClipVisionEncode",
+      "role": "optional_clip_reference"
+    },
+    {
+      "id": "wan_scail_reference",
+      "class_type": "WanVideoAddSCAILReferenceEmbeds",
+      "role": "wrapper_reference_conditioning"
+    },
+    {
+      "id": "wan_scail_pose",
+      "class_type": "WanVideoAddSCAILPoseEmbeds",
+      "role": "wrapper_pose_conditioning"
+    },
+    {
+      "id": "wan_sampler",
+      "class_type": "WanVideoSamplerv2",
+      "role": "wrapper_sampler"
+    }
+  ],
+  "links": [
+    {
+      "from": ["nlf_render", "image"],
+      "to": ["scail_pose2_adapter", "pose_images"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["scail_pose2_adapter", "width"],
+      "to": ["wan_empty_embeds", "width"],
+      "type": "INT"
+    },
+    {
+      "from": ["scail_pose2_adapter", "height"],
+      "to": ["wan_empty_embeds", "height"],
+      "type": "INT"
+    },
+    {
+      "from": ["scail_pose2_adapter", "num_frames"],
+      "to": ["wan_empty_embeds", "num_frames"],
+      "type": "INT"
+    },
+    {
+      "from": ["scail_pose2_adapter", "ref_image"],
+      "to": ["wan_scail_reference", "ref_image"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["scail_pose2_adapter", "clip_ref_image"],
+      "to": ["wan_clip_vision", "image_1"],
+      "type": "IMAGE",
+      "optional": true
+    },
+    {
+      "from": ["wan_empty_embeds", "WANVIDIMAGE_EMBEDS"],
+      "to": ["wan_scail_reference", "embeds"],
+      "type": "WANVIDIMAGE_EMBEDS"
+    },
+    {
+      "from": ["wan_scail_reference", "WANVIDIMAGE_EMBEDS"],
+      "to": ["wan_scail_pose", "embeds"],
+      "type": "WANVIDIMAGE_EMBEDS"
+    },
+    {
+      "from": ["scail_pose2_adapter", "pose_images"],
+      "to": ["wan_scail_pose", "pose_images"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["wan_scail_pose", "WANVIDIMAGE_EMBEDS"],
+      "to": ["wan_sampler", "image_embeds"],
+      "type": "WANVIDIMAGE_EMBEDS"
+    }
+  ],
+  "warnings": [
+    "This skeleton targets the current WanVideoWrapper SCAIL v1-style reference and pose image path.",
+    "It does not represent SCAIL-2 RGB semantic masks, replacement mode, or 28-channel mask latents."
+  ]
+}

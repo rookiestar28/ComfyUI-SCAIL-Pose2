@@ -1,0 +1,73 @@
+*.pyd
+.venv-wsl/
+output/
+.rookieui_runtime/
+.playwright-cli/
+.tox/
+.coverage.*
+*.cover
+scripts/sync_split.py
+tests_output.txt
+playwright/.cache/
+test_output.txt
+test_auth_out.txt
+connector_state.json*
+*.swp
+
+# Agent/local project exclusions
+.planning/
+.sessions/
+reference/
+REFERENCE/
+.reference/
+ROADMAP.md
+roadmap*.md
+AGENTS.md
+
+# Secrets and local environment
+.env
+.env.*
+*.env
+!.env.example
+!.env.sample
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.se*/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+.venv-*/
+venv/
+ENV/
+
+# Node / frontend tests
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+playwright-report/
+test-results/
+coverage/
+
+# Build, cache, temp, and local tool output
+dist/
+build/
+.cache/
+.tmp/
+tmp/
+temp/
+*.log
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

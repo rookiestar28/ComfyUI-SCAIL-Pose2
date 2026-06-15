@@ -1,0 +1,50 @@
+{
+  "schema": "scail_pose2.workflow_skeleton.v1",
+  "title": "SCAIL-2 Condition Builder Skeleton",
+  "execution": "static_only",
+  "live_generation": "deferred",
+  "nodes": [
+    {
+      "id": "user_mask_condition",
+      "helper": "build_user_mask_condition",
+      "role": "user_provided_rgb_mask_condition",
+      "output_type": "SCAIL2_CONDITION"
+    },
+    {
+      "id": "sam3_dependency_check",
+      "class_type": "SCAIL2SAM3DependencyCheck",
+      "role": "optional_sam3_runtime_check"
+    },
+    {
+      "id": "sam3_mocked_tracks",
+      "helper": "build_condition_from_sam3_tracks",
+      "role": "mockable_sam3_track_condition",
+      "output_type": "SCAIL2_CONDITION"
+    }
+  ],
+  "required_condition_fields": [
+    "mode",
+    "replace_flag",
+    "width",
+    "height",
+    "num_frames",
+    "ref_mask_indices",
+    "driving_mask_indices",
+    "segment_len",
+    "segment_overlap",
+    "additional_references"
+  ],
+  "unsupported_current_wan_scail_features": [
+    "rgb_semantic_reference_masks",
+    "rgb_semantic_driving_masks",
+    "mask_latents_28_channel",
+    "replacement_flag_rope_mode",
+    "additional_reference_mask_pairs",
+    "clean_history_segment_overlap",
+    "mask_palette_track_metadata"
+  ],
+  "warnings": [
+    "SCAIL2_CONDITION is a preprocessing contract, not a generation node.",
+    "Current WanVideoWrapper SCAIL nodes cannot directly consume full SCAIL-2 RGB semantic masks."
+  ]
+}

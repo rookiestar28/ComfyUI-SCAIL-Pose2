@@ -1,0 +1,13 @@
+repos:
+  - repo: local
+    hooks:
+      - id: detect-secrets
+        name: detect-secrets scan
+        entry: python scripts/check_detect_secrets.py
+        language: system
+        pass_filenames: false
+      - id: python-compile
+        name: compile tracked and candidate Python files
+        entry: python scripts/compile_python_files.py
+        language: system
+        pass_filenames: false

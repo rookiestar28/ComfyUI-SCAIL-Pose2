@@ -1,0 +1,60 @@
+{
+  "schema": "scail_pose2.workflow_skeleton.v1",
+  "title": "WanAnimate Fallback Skeleton",
+  "execution": "static_only",
+  "live_generation": "deferred",
+  "nodes": [
+    {
+      "id": "scail2_condition",
+      "output_type": "SCAIL2_CONDITION",
+      "role": "source_condition_with_rgb_masks"
+    },
+    {
+      "id": "wananimate_fallback_adapter",
+      "helper": "convert_scail2_condition_to_wananimate",
+      "role": "explicit_degradation_adapter",
+      "allow_semantic_degradation_default": false
+    },
+    {
+      "id": "wananimate_embeds",
+      "class_type": "WanVideoAnimateEmbeds",
+      "role": "wrapper_fallback_embeds"
+    }
+  ],
+  "links": [
+    {
+      "from": ["wananimate_fallback_adapter", "ref_images"],
+      "to": ["wananimate_embeds", "ref_images"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["wananimate_fallback_adapter", "pose_images"],
+      "to": ["wananimate_embeds", "pose_images"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["wananimate_fallback_adapter", "bg_images"],
+      "to": ["wananimate_embeds", "bg_images"],
+      "type": "IMAGE",
+      "optional": true
+    },
+    {
+      "from": ["wananimate_fallback_adapter", "mask"],
+      "to": ["wananimate_embeds", "mask"],
+      "type": "MASK"
+    }
+  ],
+  "degradation": {
+    "is_full_scail2_parity": false,
+    "requires_explicit_enable": true,
+    "semantic_losses": [
+      "rgb_semantic_masks_collapsed_to_binary_grayscale",
+      "scail2_28_channel_mask_latent_not_represented",
+      "mask_palette_track_metadata_not_preserved_as_channels"
+    ]
+  },
+  "warnings": [
+    "This fallback is not full SCAIL-2 parity.",
+    "Use only when the user explicitly accepts RGB semantic mask degradation."
+  ]
+}
