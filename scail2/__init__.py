@@ -10,4 +10,5 @@ __all__ = [
     "wanvideo_adapter",
     "wananimate_fallback",
     "wanvideo_contracts",
+    "wanvideo_scail2_adapter",
 ]
