@@ -18,6 +18,9 @@ EXPECTED_RELEASE_NODE_KEYS = {
     "SaveNLFPosesAs3D",
     "SCAILPose2WanSCAILImages",
     "SCAIL2SAM3DependencyCheck",
+    "SCAILPose2ColoredMask",
+    "SCAILPose2SCAIL2Condition",
+    "SCAILPose2WanVideoSCAIL2Adapter",
 }
 
 
@@ -88,6 +91,22 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertIn("restored v1 pose nodes", sop)
         self.assertIn("SCAIL-2 helper modules", sop)
         self.assertIn("release validation tests", sop)
+
+    def test_readme_lists_final_scail2_nodes_and_boundaries(self) -> None:
+        readme = read_text("readme.md")
+
+        for node_key in (
+            "SCAILPose2ColoredMask",
+            "SCAILPose2SCAIL2Condition",
+            "SCAILPose2WanVideoSCAIL2Adapter",
+        ):
+            with self.subTest(node_key=node_key):
+                self.assertIn(node_key, readme)
+
+        self.assertIn("SCAIL-2 adapter payload", readme)
+        self.assertIn("not live wrapper-side full SCAIL-2 parity", readme)
+        self.assertNotIn("reference/docs", readme)
+        self.assertNotIn(".planning", readme)
 
     def test_publish_workflow_matches_registry_release_boundary(self) -> None:
         workflow = read_text(".github/workflows/publish.yml")

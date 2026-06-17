@@ -5,8 +5,9 @@ ComfyUI-SCAIL-Pose2 is a ComfyUI custom node package for SCAIL and SCAIL-2 pose 
 ## Current Scope
 
 - v1 SCAIL pose-control nodes: load NLF models, predict NLF poses, convert OpenPose or ViTPose keypoints to DWPose-style data, render NLF poses, and export NLF poses as 3D animation.
-- WanVideoWrapper adapter node: validate and pass reference, pose, optional clip reference, size, and frame-count payloads for the current wrapper SCAIL image path.
-- SCAIL-2 condition and mask preparation: build typed condition data for RGB semantic masks, reference and driving mask indices, replacement mode, segment settings, and unsupported-feature reporting.
+- WanVideoWrapper v1 adapter node: validate and pass reference, pose, optional clip reference, size, and frame-count payloads for the current wrapper SCAIL image path.
+- SCAIL-2 colored mask and condition preparation: render SAM3 track masks into identity-colored RGB masks, build typed condition data for RGB semantic masks, reference and driving mask indices, replacement mode, segment settings, continuation metadata, and unsupported-feature reporting.
+- WanVideoWrapper SCAIL-2 adapter payload: preserve full SCAIL-2 condition semantics in a versioned payload while explicitly marking current wrapper gaps.
 - SAM3 preprocessing boundary: SAM3 support is optional and lazy; base package import does not require SAM3 dependencies.
 - WanAnimate fallback helper: convert SCAIL-2 condition data into an explicitly lossy WanAnimate-compatible fallback only when semantic-mask degradation is accepted.
 
@@ -71,16 +72,24 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 ### SCAIL-Pose2 / WanVideoWrapper
 
 - `SCAILPose2WanSCAILImages`
+- `SCAILPose2WanVideoSCAIL2Adapter`
 
 ### SCAIL-Pose2 / SAM3
 
 - `SCAIL2SAM3DependencyCheck`
+- `SCAILPose2ColoredMask`
+
+### SCAIL-Pose2 / SCAIL-2
+
+- `SCAILPose2SCAIL2Condition`
 
 ## WanVideoWrapper Pipeline Boundary
 
 Use ComfyUI-SCAIL-Pose2 to prepare pose and condition inputs. Use ComfyUI-WanVideoWrapper for Wan model loading, sampling, decoding, and final video output.
 
-Current WanVideoWrapper SCAIL image compatibility is v1-style reference and pose image conditioning. Full SCAIL-2 RGB semantic mask consumption is represented in condition data and static workflow skeletons, but it is not claimed as direct wrapper parity until wrapper-side support exists.
+Current WanVideoWrapper SCAIL image compatibility is v1-style reference and pose image conditioning. `SCAILPose2WanVideoSCAIL2Adapter` builds a versioned SCAIL-2 adapter payload that preserves RGB semantic masks, 28-channel runtime mask metadata, replacement mode, additional references, segment settings, and continuation metadata.
+
+That SCAIL-2 adapter payload is not live wrapper-side full SCAIL-2 parity. It is a boundary contract for wrapper-oriented workflows until wrapper-side model loading, sampler, and transformer support consumes those fields directly. If a workflow asks for lossy v1 degradation, the adapter requires explicit approval and reports the semantic losses.
 
 ## WanAnimate Fallback
 

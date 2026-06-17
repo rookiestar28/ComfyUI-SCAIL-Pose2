@@ -1,25 +1,39 @@
 {
   "schema": "scail_pose2.workflow_skeleton.v1",
-  "title": "SCAIL-2 Condition Builder Skeleton",
+  "title": "SCAIL-2 Colored Mask, Condition, And WanVideo Adapter Skeleton",
   "execution": "static_only",
   "live_generation": "deferred",
   "nodes": [
     {
-      "id": "user_mask_condition",
-      "helper": "build_user_mask_condition",
-      "role": "user_provided_rgb_mask_condition",
-      "output_type": "SCAIL2_CONDITION"
+      "id": "colored_masks",
+      "class_type": "SCAILPose2ColoredMask",
+      "role": "sam3_track_colored_mask_creation",
+      "outputs": [
+        { "name": "pose_video_mask", "type": "IMAGE" },
+        { "name": "reference_image_mask", "type": "IMAGE" }
+      ],
+      "sort_modes": ["none", "left_to_right", "area"],
+      "backgrounds": {
+        "animation": { "driving": "black", "reference": "white" },
+        "replacement": { "driving": "white", "reference": "black" }
+      }
     },
     {
-      "id": "sam3_dependency_check",
-      "class_type": "SCAIL2SAM3DependencyCheck",
-      "role": "optional_sam3_runtime_check"
+      "id": "scail2_condition",
+      "class_type": "SCAILPose2SCAIL2Condition",
+      "role": "validated_scail2_condition_builder",
+      "output_type": "SCAIL2_CONDITION",
+      "modes": ["animation", "replacement", "pose_driven"],
+      "supports_additional_references": true,
+      "supports_continuation_metadata": true
     },
     {
-      "id": "sam3_mocked_tracks",
-      "helper": "build_condition_from_sam3_tracks",
-      "role": "mockable_sam3_track_condition",
-      "output_type": "SCAIL2_CONDITION"
+      "id": "wanvideo_scail2_adapter",
+      "class_type": "SCAILPose2WanVideoSCAIL2Adapter",
+      "role": "wanvideo_wrapper_scail2_payload_contract",
+      "output_type": "SCAIL2_WANVIDEO_PAYLOAD",
+      "degrade_to_v1_default": false,
+      "allow_degradation_default": false
     }
   ],
   "required_condition_fields": [
@@ -32,8 +46,26 @@
     "driving_mask_indices",
     "segment_len",
     "segment_overlap",
-    "additional_references"
+    "additional_references",
+    "source_kind",
+    "previous_frame_count",
+    "video_frame_offset",
+    "unsupported_wrapper_features"
   ],
+  "wanvideo_scail2_adapter": {
+    "payload_kind": "wanvideo_scail2_condition_adapter",
+    "payload_version": 1,
+    "target": {
+      "wrapper_family": "ComfyUI-WanVideoWrapper",
+      "current_wrapper_path": "v1_scail_embeds",
+      "requires_wrapper_scail2_support": true,
+      "live_wrapper_supported": false
+    },
+    "degradation": {
+      "is_full_scail2_parity": false,
+      "requires_explicit_enable": true
+    }
+  },
   "unsupported_current_wan_scail_features": [
     "rgb_semantic_reference_masks",
     "rgb_semantic_driving_masks",
@@ -45,6 +77,7 @@
   ],
   "warnings": [
     "SCAIL2_CONDITION is a preprocessing contract, not a generation node.",
-    "Current WanVideoWrapper SCAIL nodes cannot directly consume full SCAIL-2 RGB semantic masks."
+    "SCAIL2_WANVIDEO_PAYLOAD preserves SCAIL-2 semantics but is not live wrapper-side full SCAIL-2 parity.",
+    "Current WanVideoWrapper SCAIL nodes consume v1-style reference and pose image conditioning."
   ]
 }

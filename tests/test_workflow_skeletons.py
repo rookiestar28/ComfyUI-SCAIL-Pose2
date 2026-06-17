@@ -48,11 +48,36 @@ class WorkflowSkeletonTests(unittest.TestCase):
 
     def test_scail2_condition_skeleton_lists_unsupported_wrapper_features(self) -> None:
         data = load_skeleton("scail2_condition_builder.json")
+        class_types = {node.get("class_type") for node in data["nodes"]}
         output_types = {node.get("output_type") for node in data["nodes"]}
         fields = set(data["required_condition_fields"])
 
+        self.assertTrue(
+            {
+                "SCAILPose2ColoredMask",
+                "SCAILPose2SCAIL2Condition",
+                "SCAILPose2WanVideoSCAIL2Adapter",
+            }.issubset(class_types)
+        )
         self.assertIn("SCAIL2_CONDITION", output_types)
-        self.assertTrue({"mode", "replace_flag", "driving_mask_indices"}.issubset(fields))
+        self.assertIn("SCAIL2_WANVIDEO_PAYLOAD", output_types)
+        self.assertTrue(
+            {
+                "mode",
+                "replace_flag",
+                "driving_mask_indices",
+                "source_kind",
+                "previous_frame_count",
+                "video_frame_offset",
+            }.issubset(fields)
+        )
+        self.assertEqual(
+            "v1_scail_embeds",
+            data["wanvideo_scail2_adapter"]["target"]["current_wrapper_path"],
+        )
+        self.assertFalse(
+            data["wanvideo_scail2_adapter"]["target"]["live_wrapper_supported"]
+        )
         self.assertEqual(
             set(wanvideo_contracts.UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES),
             set(data["unsupported_current_wan_scail_features"]),
