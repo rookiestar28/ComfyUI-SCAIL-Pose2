@@ -2,7 +2,8 @@
 name = "comfyui-scail-pose2"
 description = "ComfyUI SCAIL/SCAIL-2 pose preprocessing and WanVideoWrapper adapter nodes."
 version = "0.1.0"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "rookiestar28" }]
 readme = "readme.md"
 requires-python = ">=3.10"

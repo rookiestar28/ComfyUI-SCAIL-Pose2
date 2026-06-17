@@ -28,7 +28,8 @@ class PackagingPublicDocsTests(unittest.TestCase):
         self.assertEqual(project["authors"], [{"name": "rookiestar28"}])
         self.assertEqual(project["readme"], "readme.md")
         self.assertIn("SCAIL-2", project["description"])
-        self.assertNotIn("license", project)
+        self.assertEqual(project["license"], "MIT")
+        self.assertEqual(project["license-files"], ["LICENSE"])
         self.assertEqual(
             data["project"]["urls"]["Repository"],
             "https://github.com/rookiestar28/ComfyUI-SCAIL-Pose2",
