@@ -2,17 +2,6 @@
 
 ComfyUI-SCAIL-Pose2 is a ComfyUI custom node package for SCAIL and SCAIL-2 pose and mask preprocessing. It prepares pose images, DWPose-compatible pose data, NLF pose renders, SCAIL-2 condition metadata, and adapter payloads for wrapper-side generation nodes. It is designed to work with ComfyUI-WanVideoWrapper as the downstream generation owner.
 
-## Current Scope
-
-- v1 SCAIL pose-control nodes: load NLF models, predict NLF poses, convert OpenPose or ViTPose keypoints to DWPose-style data, render NLF poses, and export NLF poses as 3D animation.
-- WanVideoWrapper v1 adapter node: validate and pass reference, pose, optional clip reference, size, and frame-count payloads for the current wrapper SCAIL image path.
-- SCAIL-2 colored mask and condition preparation: render SAM3 track masks into identity-colored RGB masks, build typed condition data for RGB semantic masks, reference and driving mask indices, replacement mode, segment settings, continuation metadata, and unsupported-feature reporting.
-- WanVideoWrapper SCAIL-2 adapter payload: preserve full SCAIL-2 condition semantics in a versioned payload while explicitly marking current wrapper gaps.
-- SAM3 preprocessing boundary: SAM3 support is optional and lazy; base package import does not require SAM3 dependencies.
-- WanAnimate fallback helper: convert SCAIL-2 condition data into an explicitly lossy WanAnimate-compatible fallback only when semantic-mask degradation is accepted.
-
-Direct generation is deferred. Model loading, sampling, VAE work, decoding, memory controls, and video output remain owned by ComfyUI-WanVideoWrapper.
-
 ## Installation
 
 Recommended: install this package with ComfyUI-Manager by searching for `ComfyUI-SCAIL-Pose2`, installing it, and restarting ComfyUI.
@@ -28,22 +17,6 @@ python -m pip install -r requirements.txt
 
 If you use the Windows portable ComfyUI build, run the install command with the portable Python executable instead of a global Python.
 
-## Model Folders
-
-Place NLF pose model files in:
-
-```text
-ComfyUI/models/nlf/
-```
-
-Detection model files used by compatible pose preprocessors belong in:
-
-```text
-ComfyUI/models/detection/
-```
-
-Model checkpoints are not bundled with this package. Do not hard-code local absolute model paths in workflows; use ComfyUI model folders so workflows remain portable.
-
 ## Optional Dependencies
 
 ComfyUI provides the core runtime, including Torch in normal installations. This package keeps heavy or workflow-specific components lazy so ComfyUI can start even when optional stacks are absent.
@@ -56,62 +29,32 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 
 ### SCAIL-Pose
 
-- `NLFModelLoader`
-- `NLFPredictPoses`
-- `ConvertOpenPoseKeypointsToDWPose`
+- `NLFModelLoader`: loads an NLF pose model from the ComfyUI `models/nlf/` folder and returns an `NLF_MODEL` handle for pose prediction.
+- `NLFPredictPoses`: runs the loaded NLF model on input images and returns `NLFPRED` pose data plus detected bounding boxes.
+- `ConvertOpenPoseKeypointsToDWPose`: converts OpenPose-style keypoint data into the DWPose-compatible structure used by the render and alignment path.
 
 ### WanAnimatePreprocess
 
-- `PoseDetectionVitPoseToDWPose`
+- `PoseDetectionVitPoseToDWPose`: runs the ViTPose detection path and converts detected pose metadata into the DWPose-compatible format expected by downstream preprocessing.
 
 ### WanVideoWrapper
 
-- `RenderNLFPoses`
-- `SaveNLFPosesAs3D`
+- `RenderNLFPoses`: renders `NLFPRED` pose data into pose images and masks for WanVideoWrapper-oriented pose-control workflows.
+- `SaveNLFPosesAs3D`: exports NLF pose data as a GLB animation for inspection, debugging, or external 3D workflow checks.
 
 ### SCAIL-Pose2 / WanVideoWrapper
 
-- `SCAILPose2WanSCAILImages`
-- `SCAILPose2WanVideoSCAIL2Adapter`
+- `SCAILPose2WanSCAILImages`: validates and passes reference images, pose images, optional clip reference images, dimensions, and frame count for the current WanVideoWrapper v1 SCAIL image path.
+- `SCAILPose2WanVideoSCAIL2Adapter`: converts a validated `SCAIL2_CONDITION` into a versioned SCAIL-2 adapter payload (`SCAIL2_WANVIDEO_PAYLOAD`). The payload preserves SCAIL-2 semantic mask metadata and explicitly marks current WanVideoWrapper gaps; it is not live wrapper-side full SCAIL-2 parity.
 
 ### SCAIL-Pose2 / SAM3
 
-- `SCAIL2SAM3DependencyCheck`
-- `SCAILPose2ColoredMask`
+- `SCAIL2SAM3DependencyCheck`: checks whether optional SAM3 preprocessing dependencies are available in the active ComfyUI environment without making SAM3 a startup requirement.
+- `SCAILPose2ColoredMask`: renders identity-colored SCAIL-2 RGB masks from existing SAM3 track data. It supports shared identity sorting, object filtering, animation/replacement background semantics, optional reference track data, and optional plain reference masks.
 
 ### SCAIL-Pose2 / SCAIL-2
 
-- `SCAILPose2SCAIL2Condition`
-
-## WanVideoWrapper Pipeline Boundary
-
-Use ComfyUI-SCAIL-Pose2 to prepare pose and condition inputs. Use ComfyUI-WanVideoWrapper for Wan model loading, sampling, decoding, and final video output.
-
-Current WanVideoWrapper SCAIL image compatibility is v1-style reference and pose image conditioning. `SCAILPose2WanVideoSCAIL2Adapter` builds a versioned SCAIL-2 adapter payload that preserves RGB semantic masks, 28-channel runtime mask metadata, replacement mode, additional references, segment settings, and continuation metadata.
-
-That SCAIL-2 adapter payload is not live wrapper-side full SCAIL-2 parity. It is a boundary contract for wrapper-oriented workflows until wrapper-side model loading, sampler, and transformer support consumes those fields directly. If a workflow asks for lossy v1 degradation, the adapter requires explicit approval and reports the semantic losses.
-
-## WanAnimate Fallback
-
-The WanAnimate fallback path is a controlled degradation path. It can collapse SCAIL-2 semantic mask information into a simpler mask shape for wrapper paths that cannot consume full SCAIL-2 RGB semantic data.
-
-This fallback is not full SCAIL-2 parity. Use it only when the loss of semantic channel detail is acceptable for the workflow.
-
-## Development Validation
-
-For repository validation, use the included full test runner:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run_full_tests_windows.ps1
-```
-
-Linux and WSL users can run:
-
-```bash
-bash scripts/run_full_tests_linux.sh
-```
-
-Frontend npm or Playwright tests are not part of the current package because this repository does not ship a tracked frontend harness.
+- `SCAILPose2SCAIL2Condition`: builds a validated `SCAIL2_CONDITION` payload from reference images, pose video, RGB semantic reference and driving masks, mode, segment settings, optional additional reference pairs, and continuation metadata. Supported modes are `animation`, `replacement`, and `pose_driven`.
 
 ## License
 
