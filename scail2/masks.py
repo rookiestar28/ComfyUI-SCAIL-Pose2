@@ -68,6 +68,43 @@ class MaskLatent28:
         return self.data[channel][latent_frame][row][col]
 
 
+@dataclass(frozen=True)
+class RuntimeMaskLatent28:
+    data: tuple[Any, ...]
+    frame_count: int
+    latent_frame_count: int
+    source_height: int
+    source_width: int
+    latent_height: int
+    latent_width: int
+    temporal_stride: int = TEMPORAL_COMPRESSION_STRIDE
+    spatial_downsample: int = 8
+    color_order: tuple[str, ...] = SEMANTIC_MASK_COLOR_NAMES
+
+    @property
+    def comfy_shape(self) -> tuple[int, int, int, int, int]:
+        return (1, self.latent_frame_count, 28, self.latent_height, self.latent_width)
+
+    @property
+    def scail2_shape(self) -> tuple[int, int, int, int]:
+        return (28, self.latent_frame_count, self.latent_height, self.latent_width)
+
+    @property
+    def shape(self) -> tuple[int, int, int, int, int]:
+        return self.comfy_shape
+
+    def value(
+        self,
+        *,
+        latent_frame: int,
+        channel: int,
+        row: int = 0,
+        col: int = 0,
+        batch: int = 0,
+    ) -> float:
+        return float(self.data[batch][latent_frame][channel][row][col])
+
+
 def _to_raw_rgb(rgb: Sequence[Any]) -> tuple[int, int, int]:
     if len(rgb) < 3:
         raise ValueError("RGB semantic mask pixels must have at least 3 channels")
@@ -187,6 +224,96 @@ def _freeze_latent_data(data: list[list[list[list[int]]]]) -> tuple[Any, ...]:
     )
 
 
+def _latent_spatial_size(size: int, spatial_downsample: int) -> int:
+    if spatial_downsample != 8:
+        raise ValueError("SCAIL-2 runtime mask packing uses spatial downsample 8")
+    latent_size = size
+    for _ in range(3):
+        latent_size = (latent_size + 1) // 2
+    return latent_size
+
+
+def _downsample_color_plane(
+    frame: Sequence[Sequence[int]],
+    *,
+    color_index: int,
+    latent_height: int,
+    latent_width: int,
+) -> tuple[tuple[float, ...], ...]:
+    source_height = len(frame)
+    source_width = len(frame[0])
+    downsampled = []
+    for latent_row in range(latent_height):
+        source_row_start = (latent_row * source_height) // latent_height
+        source_row_end = ((latent_row + 1) * source_height) // latent_height
+        if latent_row == latent_height - 1:
+            source_row_end = source_height
+        source_row_end = max(source_row_end, source_row_start + 1)
+
+        row_values = []
+        for latent_col in range(latent_width):
+            source_col_start = (latent_col * source_width) // latent_width
+            source_col_end = ((latent_col + 1) * source_width) // latent_width
+            if latent_col == latent_width - 1:
+                source_col_end = source_width
+            source_col_end = max(source_col_end, source_col_start + 1)
+
+            area = (source_row_end - source_row_start) * (
+                source_col_end - source_col_start
+            )
+            active = 0
+            for source_row in range(source_row_start, source_row_end):
+                for source_col in range(source_col_start, source_col_end):
+                    if int(frame[source_row][source_col]) == color_index:
+                        active += 1
+            row_values.append(active / area)
+        downsampled.append(tuple(row_values))
+    return tuple(downsampled)
+
+
+def _downsample_semantic_frame(
+    frame: Sequence[Sequence[int]],
+    *,
+    latent_height: int,
+    latent_width: int,
+) -> tuple[tuple[tuple[float, ...], ...], ...]:
+    return tuple(
+        _downsample_color_plane(
+            frame,
+            color_index=color_index,
+            latent_height=latent_height,
+            latent_width=latent_width,
+        )
+        for color_index in range(7)
+    )
+
+
+def _empty_runtime_data(
+    latent_frame_count: int,
+    height: int,
+    width: int,
+) -> list[list[list[list[list[float]]]]]:
+    return [
+        [
+            [
+                [[0.0 for _col in range(width)] for _row in range(height)]
+                for _channel in range(28)
+            ]
+            for _latent in range(latent_frame_count)
+        ]
+    ]
+
+
+def _freeze_runtime_data(data: list[list[list[list[list[float]]]]]) -> tuple[Any, ...]:
+    return tuple(
+        tuple(
+            tuple(tuple(tuple(row) for row in channel) for channel in latent_frame)
+            for latent_frame in batch
+        )
+        for batch in data
+    )
+
+
 def pack_semantic_mask_indices_to_28_channels(
     indices: Sequence[Sequence[Sequence[int]]],
     *,
@@ -226,3 +353,78 @@ def pack_semantic_mask_indices_to_28_channels(
         width=shape.width,
         temporal_stride=temporal_stride,
     )
+
+
+def pack_semantic_mask_indices_to_runtime_28_channels(
+    indices: Sequence[Sequence[Sequence[int]]],
+    *,
+    temporal_stride: int = TEMPORAL_COMPRESSION_STRIDE,
+    spatial_downsample: int = 8,
+    require_vae_alignment: bool = True,
+) -> RuntimeMaskLatent28:
+    if temporal_stride != TEMPORAL_COMPRESSION_STRIDE:
+        raise ValueError("SCAIL-2 mask packing uses temporal stride 4")
+    shape = mask_indices_shape(indices)
+    if require_vae_alignment and (shape.frames - 1) % temporal_stride != 0:
+        raise ValueError("SCAIL-2 mask frame count must be 4n+1 for strict packing")
+
+    latent_height = _latent_spatial_size(shape.height, spatial_downsample)
+    latent_width = _latent_spatial_size(shape.width, spatial_downsample)
+    latent_frame_count = (shape.frames - 1) // temporal_stride + 1
+
+    downsampled_frames = [
+        _downsample_semantic_frame(
+            frame,
+            latent_height=latent_height,
+            latent_width=latent_width,
+        )
+        for frame in indices
+    ]
+    padded_frames = [downsampled_frames[0]] * temporal_stride + downsampled_frames[1:]
+    target_frame_count = latent_frame_count * temporal_stride
+    if len(padded_frames) < target_frame_count:
+        padded_frames.extend(
+            [downsampled_frames[-1]] * (target_frame_count - len(padded_frames))
+        )
+    if len(padded_frames) > target_frame_count:
+        padded_frames = padded_frames[:target_frame_count]
+
+    data = _empty_runtime_data(latent_frame_count, latent_height, latent_width)
+    for latent_frame in range(latent_frame_count):
+        for slot in range(temporal_stride):
+            frame_planes = padded_frames[latent_frame * temporal_stride + slot]
+            for color_index, plane in enumerate(frame_planes):
+                channel = slot * 7 + color_index
+                for row_index, row in enumerate(plane):
+                    for col_index, value in enumerate(row):
+                        data[0][latent_frame][channel][row_index][col_index] = value
+
+    return RuntimeMaskLatent28(
+        data=_freeze_runtime_data(data),
+        frame_count=shape.frames,
+        latent_frame_count=latent_frame_count,
+        source_height=shape.height,
+        source_width=shape.width,
+        latent_height=latent_height,
+        latent_width=latent_width,
+        temporal_stride=temporal_stride,
+        spatial_downsample=spatial_downsample,
+    )
+
+
+def runtime_mask_to_torch(
+    runtime_mask: RuntimeMaskLatent28,
+    *,
+    layout: str = "comfy",
+):
+    try:
+        import torch
+    except ModuleNotFoundError as exc:  # pragma: no cover - depends on local env
+        raise RuntimeError("torch is required to materialize runtime mask tensors") from exc
+
+    tensor = torch.tensor(runtime_mask.data, dtype=torch.float32)
+    if layout == "comfy":
+        return tensor
+    if layout == "scail2":
+        return tensor[0].permute(1, 0, 2, 3)
+    raise ValueError("layout must be 'comfy' or 'scail2'")

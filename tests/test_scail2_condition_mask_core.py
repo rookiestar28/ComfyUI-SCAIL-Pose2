@@ -37,6 +37,10 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
         self.assertEqual(BACKGROUND_INDEX, classify_rgb_semantic_color(BLACK))
 
     def test_strict_palette_rejects_ambiguous_non_semantic_colors(self) -> None:
+        self.assertEqual(1, classify_rgb_semantic_color((225, 0, 0)))
+        self.assertEqual(BACKGROUND_INDEX, classify_rgb_semantic_color((30, 0, 0)))
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            classify_rgb_semantic_color((224, 0, 0))
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             classify_rgb_semantic_color((128, 0, 0))
 
@@ -80,6 +84,94 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "4n\\+1"):
             pack_semantic_mask_indices_to_28_channels(four_frames)
+
+    def test_runtime_mask_packing_exposes_comfy_and_scail2_shapes(self) -> None:
+        from scail2 import masks as scail_masks
+
+        five_frames = semantic_mask_indices(
+            frames_from_colors(
+                [
+                    (255, 255, 255),
+                    (255, 0, 0),
+                    (0, 255, 0),
+                    (0, 0, 255),
+                    (0, 255, 255),
+                ],
+                height=8,
+                width=8,
+            )
+        )
+
+        runtime = scail_masks.pack_semantic_mask_indices_to_runtime_28_channels(
+            five_frames
+        )
+
+        self.assertEqual((1, 2, 28, 1, 1), runtime.shape)
+        self.assertEqual((1, 2, 28, 1, 1), runtime.comfy_shape)
+        self.assertEqual((28, 2, 1, 1), runtime.scail2_shape)
+        self.assertEqual(1.0, runtime.value(latent_frame=0, channel=0))
+        self.assertEqual(1.0, runtime.value(latent_frame=0, channel=7))
+        self.assertEqual(1.0, runtime.value(latent_frame=0, channel=14))
+        self.assertEqual(1.0, runtime.value(latent_frame=0, channel=21))
+        self.assertEqual(1.0, runtime.value(latent_frame=1, channel=1))
+        self.assertEqual(1.0, runtime.value(latent_frame=1, channel=9))
+        self.assertEqual(1.0, runtime.value(latent_frame=1, channel=17))
+        self.assertEqual(1.0, runtime.value(latent_frame=1, channel=27))
+
+    def test_runtime_mask_packing_rejects_four_frames_and_accepts_eighty_one(
+        self,
+    ) -> None:
+        from scail2 import masks as scail_masks
+
+        four_frames = semantic_mask_indices(frames_from_colors([(255, 0, 0)] * 4))
+        eighty_one_frames = semantic_mask_indices(
+            frames_from_colors([(0, 0, 0)] * 80 + [(255, 0, 255)])
+        )
+
+        with self.assertRaisesRegex(ValueError, "4n\\+1"):
+            scail_masks.pack_semantic_mask_indices_to_runtime_28_channels(four_frames)
+
+        runtime = scail_masks.pack_semantic_mask_indices_to_runtime_28_channels(
+            eighty_one_frames
+        )
+        self.assertEqual((1, 21, 28, 1, 1), runtime.shape)
+        self.assertEqual(1.0, runtime.value(latent_frame=20, channel=26))
+
+    def test_runtime_mask_spatial_downsample_handles_even_and_odd_dimensions(
+        self,
+    ) -> None:
+        from scail2 import masks as scail_masks
+
+        even_frame = []
+        for row_index in range(16):
+            row = []
+            for col_index in range(16):
+                if row_index < 8 and col_index < 8:
+                    row.append((255, 0, 0))
+                else:
+                    row.append(BLACK)
+            even_frame.append(row)
+        even_runtime = scail_masks.pack_semantic_mask_indices_to_runtime_28_channels(
+            semantic_mask_indices([even_frame])
+        )
+
+        self.assertEqual((1, 1, 28, 2, 2), even_runtime.shape)
+        self.assertEqual(1.0, even_runtime.value(latent_frame=0, channel=1, row=0, col=0))
+        self.assertEqual(0.0, even_runtime.value(latent_frame=0, channel=1, row=0, col=1))
+        self.assertEqual(0.0, even_runtime.value(latent_frame=0, channel=1, row=1, col=0))
+        self.assertEqual(0.0, even_runtime.value(latent_frame=0, channel=1, row=1, col=1))
+
+        odd_runtime = scail_masks.pack_semantic_mask_indices_to_runtime_28_channels(
+            semantic_mask_indices(frames_from_colors([(0, 255, 0)], height=9, width=9))
+        )
+
+        self.assertEqual((1, 1, 28, 2, 2), odd_runtime.shape)
+        for row in range(2):
+            for col in range(2):
+                self.assertEqual(
+                    1.0,
+                    odd_runtime.value(latent_frame=0, channel=2, row=row, col=col),
+                )
 
     def test_condition_builder_accepts_animation_and_replacement_modes(self) -> None:
         ref_mask = frames_from_colors([(255, 255, 255)])
