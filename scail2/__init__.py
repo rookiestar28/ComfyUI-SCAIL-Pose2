@@ -2,6 +2,7 @@
 
 __all__ = [
     "condition",
+    "colored_masks",
     "generation_policy",
     "masks",
     "preprocessing",
