@@ -21,6 +21,9 @@ def build_user_mask_condition(
     segment_overlap: Any = 5,
     additional_ref_images: Sequence[Any] | None = None,
     additional_ref_masks: Sequence[Sequence[Any]] | None = None,
+    source_kind: Any = "user_rgb_masks",
+    previous_frame_count: Any = 0,
+    video_frame_offset: Any = 0,
 ) -> SCAIL2Condition:
     """Build a validated SCAIL-2 condition from user-supplied RGB masks."""
 
@@ -37,4 +40,7 @@ def build_user_mask_condition(
         segment_overlap=segment_overlap,
         additional_ref_images=additional_ref_images,
         additional_ref_masks=additional_ref_masks,
+        source_kind=source_kind,
+        previous_frame_count=previous_frame_count,
+        video_frame_offset=video_frame_offset,
     )
