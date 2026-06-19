@@ -14,9 +14,16 @@
       }
     },
     {
-      "id": "scail_pose2_adapter",
-      "class_type": "SCAILPose2WanSCAILImages",
-      "role": "validated_passthrough_adapter"
+      "id": "workflow_inputs",
+      "class_type": "ExternalWorkflowInputs",
+      "role": "user_supplied_reference_image_and_dimensions",
+      "outputs": {
+        "ref_image": "IMAGE",
+        "clip_ref_image": "IMAGE",
+        "width": "INT",
+        "height": "INT",
+        "num_frames": "INT"
+      }
     },
     {
       "id": "wan_empty_embeds",
@@ -46,32 +53,27 @@
   ],
   "links": [
     {
-      "from": ["nlf_render", "image"],
-      "to": ["scail_pose2_adapter", "pose_images"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["scail_pose2_adapter", "width"],
+      "from": ["workflow_inputs", "width"],
       "to": ["wan_empty_embeds", "width"],
       "type": "INT"
     },
     {
-      "from": ["scail_pose2_adapter", "height"],
+      "from": ["workflow_inputs", "height"],
       "to": ["wan_empty_embeds", "height"],
       "type": "INT"
     },
     {
-      "from": ["scail_pose2_adapter", "num_frames"],
+      "from": ["workflow_inputs", "num_frames"],
       "to": ["wan_empty_embeds", "num_frames"],
       "type": "INT"
     },
     {
-      "from": ["scail_pose2_adapter", "ref_image"],
+      "from": ["workflow_inputs", "ref_image"],
       "to": ["wan_scail_reference", "ref_image"],
       "type": "IMAGE"
     },
     {
-      "from": ["scail_pose2_adapter", "clip_ref_image"],
+      "from": ["workflow_inputs", "clip_ref_image"],
       "to": ["wan_clip_vision", "image_1"],
       "type": "IMAGE",
       "optional": true
@@ -87,7 +89,7 @@
       "type": "WANVIDIMAGE_EMBEDS"
     },
     {
-      "from": ["scail_pose2_adapter", "pose_images"],
+      "from": ["nlf_render", "image"],
       "to": ["wan_scail_pose", "pose_images"],
       "type": "IMAGE"
     },
@@ -99,6 +101,7 @@
   ],
   "warnings": [
     "This skeleton targets the current WanVideoWrapper SCAIL v1-style reference and pose image path.",
+    "It wires directly to WanVideoWrapper v1 SCAIL nodes; SCAIL-Pose2's SCAIL-2 adapter provides the explicit-degradation fallback path.",
     "It does not represent SCAIL-2 RGB semantic masks, replacement mode, or 28-channel mask latents."
   ]
 }

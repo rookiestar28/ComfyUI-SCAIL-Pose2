@@ -16,7 +16,6 @@ EXPECTED_RELEASE_NODE_KEYS = {
     "ConvertOpenPoseKeypointsToDWPose",
     "RenderNLFPoses",
     "SaveNLFPosesAs3D",
-    "SCAILPose2WanSCAILImages",
     "SCAIL2SAM3DependencyCheck",
     "SCAILPose2ColoredMask",
     "SCAILPose2SCAIL2Condition",
@@ -56,7 +55,6 @@ class ReleaseCloseoutTests(unittest.TestCase):
             ".comfyignore",
             "__init__.py",
             "nodes.py",
-            "nodes_wanvideo_adapter.py",
             "nodes_sam3_preprocessing.py",
             "scripts/run_full_tests_windows.ps1",
             "scripts/run_full_tests_linux.sh",
@@ -104,6 +102,7 @@ class ReleaseCloseoutTests(unittest.TestCase):
                 self.assertIn(node_key, readme)
 
         self.assertIn("SCAIL-2 adapter payload", readme)
+        self.assertNotIn("SCAILPose2WanSCAILImages", readme)
         self.assertIn("not live wrapper-side full SCAIL-2 parity", readme)
         self.assertNotIn("reference/docs", readme)
         self.assertNotIn(".planning", readme)

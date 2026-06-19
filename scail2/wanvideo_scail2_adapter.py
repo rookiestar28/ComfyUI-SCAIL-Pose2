@@ -6,6 +6,7 @@ from typing import Any
 
 from .condition import SCAIL2Condition, TYPE_SCAIL2_CONDITION
 from .masks import pack_semantic_mask_indices_to_runtime_28_channels
+from .wanvideo_adapter import build_wan_scail_images_payload
 from .wanvideo_contracts import UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES
 
 
@@ -56,6 +57,17 @@ def _degraded_v1_summary(condition: SCAIL2Condition) -> dict[str, Any]:
     }
 
 
+def _wan_scail_v1_images_for_condition(condition: SCAIL2Condition) -> dict[str, Any]:
+    return build_wan_scail_images_payload(
+        ref_image=condition.ref_image,
+        pose_images=condition.pose_video,
+        width=condition.width,
+        height=condition.height,
+        num_frames=condition.num_frames,
+        clip_ref_image=condition.ref_image,
+    )
+
+
 def build_wanvideo_scail2_adapter_payload(
     condition: Any,
     *,
@@ -72,8 +84,11 @@ def build_wanvideo_scail2_adapter_payload(
     semantic_losses = (
         SCAIL2_TO_WANVIDEO_V1_SEMANTIC_LOSSES if degrade_to_v1 else ()
     )
-    degraded_payload = (
-        _degraded_v1_summary(scail2_condition) if degrade_to_v1 else None
+    degraded_payload = _degraded_v1_summary(scail2_condition) if degrade_to_v1 else None
+    wan_scail_v1_images = (
+        _wan_scail_v1_images_for_condition(scail2_condition)
+        if degrade_to_v1
+        else None
     )
 
     return {
@@ -115,13 +130,16 @@ def build_wanvideo_scail2_adapter_payload(
         "degraded": bool(degrade_to_v1),
         "semantic_losses": semantic_losses,
         "degraded_payload": degraded_payload,
+        "wan_scail_v1_images": wan_scail_v1_images,
     }
 
 
 def summarize_wanvideo_scail2_payload(payload: dict[str, Any]) -> str:
     target = payload["target"]
+    v1_outputs = "available" if payload.get("wan_scail_v1_images") else "unavailable"
     return (
         f"{payload['kind']} v{payload['version']} "
         f"live_wrapper_supported={target['live_wrapper_supported']} "
-        f"degraded={payload['degraded']}"
+        f"degraded={payload['degraded']} "
+        f"wan_scail_v1_outputs={v1_outputs}"
     )

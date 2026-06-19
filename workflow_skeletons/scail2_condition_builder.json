@@ -23,6 +23,7 @@
       "class_type": "SCAILPose2SCAIL2Condition",
       "role": "validated_scail2_condition_builder",
       "output_type": "SCAIL2_CONDITION",
+      "input_order": ["pose_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"],
       "modes": ["animation", "replacement", "pose_driven"],
       "supports_additional_references": true,
       "supports_continuation_metadata": true
@@ -32,6 +33,8 @@
       "class_type": "SCAILPose2WanVideoSCAIL2Adapter",
       "role": "wanvideo_wrapper_scail2_payload_contract",
       "output_type": "SCAIL2_WANVIDEO_PAYLOAD",
+      "v1_compat_output_type": "SCAIL_WAN_SCAIL_IMAGES",
+      "v1_compat_outputs": ["ref_image", "pose_images", "clip_ref_image", "width", "height", "num_frames"],
       "degrade_to_v1_default": false,
       "allow_degradation_default": false
     }
@@ -63,7 +66,16 @@
     },
     "degradation": {
       "is_full_scail2_parity": false,
-      "requires_explicit_enable": true
+      "requires_explicit_enable": true,
+      "v1_outputs_when_enabled": {
+        "wan_scail_images": "SCAIL_WAN_SCAIL_IMAGES",
+        "ref_image": "IMAGE",
+        "pose_images": "IMAGE",
+        "clip_ref_image": "IMAGE",
+        "width": "INT",
+        "height": "INT",
+        "num_frames": "INT"
+      }
     }
   },
   "unsupported_current_wan_scail_features": [
@@ -78,6 +90,7 @@
   "warnings": [
     "SCAIL2_CONDITION is a preprocessing contract, not a generation node.",
     "SCAIL2_WANVIDEO_PAYLOAD preserves SCAIL-2 semantics but is not live wrapper-side full SCAIL-2 parity.",
-    "Current WanVideoWrapper SCAIL nodes consume v1-style reference and pose image conditioning."
+    "Current WanVideoWrapper SCAIL nodes consume v1-style reference and pose image conditioning.",
+    "Set degrade_to_v1 and allow_degradation only when accepting the documented semantic losses."
   ]
 }

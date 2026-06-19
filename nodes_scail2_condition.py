@@ -50,11 +50,36 @@ def _split_additional_images(value: Any | None) -> Sequence[Any] | None:
     return tuple(raw)
 
 
-def _split_additional_masks(value: Any | None) -> Sequence[Sequence[Any]] | None:
+def _split_additional_masks(
+    value: Any | None,
+    *,
+    name: str = "additional_ref_mask",
+) -> Sequence[Sequence[Any]] | None:
     if value is None:
         return None
-    frames = _normalize_image_frames(value, name="additional_ref_masks")
+    frames = _normalize_image_frames(value, name=name)
     return tuple((frame,) for frame in frames)
+
+
+def _normalize_additional_inputs(
+    additional_ref_image: Any | None,
+    additional_ref_mask: Any | None,
+) -> tuple[Sequence[Any] | None, Sequence[Sequence[Any]] | None]:
+    additional_images = _split_additional_images(additional_ref_image)
+    additional_masks = _split_additional_masks(additional_ref_mask)
+    if additional_images and not additional_masks:
+        raise ValueError("additional_ref_mask is required with additional_ref_image")
+    if additional_masks and not additional_images:
+        raise ValueError("additional_ref_image is required with additional_ref_mask")
+    if (
+        additional_images
+        and additional_masks
+        and len(additional_images) != len(additional_masks)
+    ):
+        raise ValueError(
+            "additional_ref_image and additional_ref_mask must have same length"
+        )
+    return additional_images, additional_masks
 
 
 class SCAILPose2SCAIL2Condition:
@@ -62,10 +87,10 @@ class SCAILPose2SCAIL2Condition:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "pose_video": ("IMAGE",),
+                "pose_video_mask": ("IMAGE",),
                 "ref_image": ("IMAGE",),
                 "ref_mask": ("IMAGE",),
-                "pose_video": ("IMAGE",),
-                "driving_mask": ("IMAGE",),
                 "mode": (["animation", "replacement", "pose_driven"], {"default": "animation"}),
                 "width": ("INT", {"default": 512, "min": 1, "step": 1}),
                 "height": ("INT", {"default": 512, "min": 1, "step": 1}),
@@ -76,8 +101,8 @@ class SCAILPose2SCAIL2Condition:
                 "video_frame_offset": ("INT", {"default": 0, "min": 0, "step": 1}),
             },
             "optional": {
-                "additional_ref_images": ("IMAGE",),
-                "additional_ref_masks": ("IMAGE",),
+                "additional_ref_image": ("IMAGE",),
+                "additional_ref_mask": ("IMAGE",),
             },
         }
 
@@ -89,10 +114,10 @@ class SCAILPose2SCAIL2Condition:
 
     def build(
         self,
+        pose_video,
+        pose_video_mask,
         ref_image,
         ref_mask,
-        pose_video,
-        driving_mask,
         mode,
         width,
         height,
@@ -101,9 +126,13 @@ class SCAILPose2SCAIL2Condition:
         segment_overlap,
         previous_frame_count=0,
         video_frame_offset=0,
-        additional_ref_images=None,
-        additional_ref_masks=None,
+        additional_ref_image=None,
+        additional_ref_mask=None,
     ):
+        additional_images, additional_masks = _normalize_additional_inputs(
+            additional_ref_image,
+            additional_ref_mask,
+        )
         condition = build_user_mask_condition(
             mode=mode,
             ref_image=ref_image,
@@ -111,15 +140,15 @@ class SCAILPose2SCAIL2Condition:
             pose_video=pose_video,
             pose_frame_count=num_frames,
             driving_mask_frames=_normalize_image_frames(
-                driving_mask,
-                name="driving_mask",
+                pose_video_mask,
+                name="pose_video_mask",
             ),
             width=width,
             height=height,
             segment_len=segment_len,
             segment_overlap=segment_overlap,
-            additional_ref_images=_split_additional_images(additional_ref_images),
-            additional_ref_masks=_split_additional_masks(additional_ref_masks),
+            additional_ref_images=additional_images,
+            additional_ref_masks=additional_masks,
             source_kind="comfy_node:SCAILPose2SCAIL2Condition",
             previous_frame_count=previous_frame_count,
             video_frame_offset=video_frame_offset,

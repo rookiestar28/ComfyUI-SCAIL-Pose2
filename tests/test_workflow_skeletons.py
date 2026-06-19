@@ -34,7 +34,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertTrue(
             {
                 "RenderNLFPoses",
-                "SCAILPose2WanSCAILImages",
+                "ExternalWorkflowInputs",
                 wanvideo_contracts.NODE_WAN_EMPTY_EMBEDS,
                 wanvideo_contracts.NODE_WAN_CLIP_VISION_ENCODE,
                 wanvideo_contracts.NODE_WAN_ADD_SCAIL_REFERENCE,
@@ -42,6 +42,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
                 wanvideo_contracts.NODE_WAN_SAMPLER_V2,
             }.issubset(class_types)
         )
+        self.assertNotIn("SCAILPose2WanSCAILImages", class_types)
         self.assertIn((("wan_scail_reference", "ref_image"), "IMAGE"), links)
         self.assertIn((("wan_scail_pose", "pose_images"), "IMAGE"), links)
         self.assertIn((("wan_empty_embeds", "num_frames"), "INT"), links)
@@ -61,6 +62,21 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertIn("SCAIL2_CONDITION", output_types)
         self.assertIn("SCAIL2_WANVIDEO_PAYLOAD", output_types)
+        self.assertEqual(
+            [
+                "pose_video",
+                "pose_video_mask",
+                "ref_image",
+                "ref_mask",
+                "additional_ref_image",
+                "additional_ref_mask",
+            ],
+            next(
+                node
+                for node in data["nodes"]
+                if node["id"] == "scail2_condition"
+            )["input_order"],
+        )
         self.assertTrue(
             {
                 "mode",
@@ -81,6 +97,29 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(
             set(wanvideo_contracts.UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES),
             set(data["unsupported_current_wan_scail_features"]),
+        )
+        self.assertEqual(
+            "SCAIL_WAN_SCAIL_IMAGES",
+            next(
+                node
+                for node in data["nodes"]
+                if node["id"] == "wanvideo_scail2_adapter"
+            )["v1_compat_output_type"],
+        )
+        self.assertEqual(
+            {
+                "ref_image": "IMAGE",
+                "pose_images": "IMAGE",
+                "width": "INT",
+                "height": "INT",
+                "num_frames": "INT",
+            },
+            {
+                key: data["wanvideo_scail2_adapter"]["degradation"][
+                    "v1_outputs_when_enabled"
+                ][key]
+                for key in ("ref_image", "pose_images", "width", "height", "num_frames")
+            },
         )
 
     def test_wananimate_fallback_skeleton_requires_explicit_degradation(self) -> None:

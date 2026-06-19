@@ -44,8 +44,7 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 
 ### SCAIL-Pose2 / WanVideoWrapper
 
-- `SCAILPose2WanSCAILImages`: validates and passes reference images, pose images, optional clip reference images, dimensions, and frame count for the current WanVideoWrapper v1 SCAIL image path.
-- `SCAILPose2WanVideoSCAIL2Adapter`: converts a validated `SCAIL2_CONDITION` into a versioned SCAIL-2 adapter payload (`SCAIL2_WANVIDEO_PAYLOAD`). The payload preserves SCAIL-2 semantic mask metadata and explicitly marks current WanVideoWrapper gaps; it is not live wrapper-side full SCAIL-2 parity.
+- `SCAILPose2WanVideoSCAIL2Adapter`: converts a validated `SCAIL2_CONDITION` into a versioned SCAIL-2 adapter payload (`SCAIL2_WANVIDEO_PAYLOAD`). The payload preserves SCAIL-2 semantic mask metadata and explicitly marks current WanVideoWrapper gaps; it is not live wrapper-side full SCAIL-2 parity. When `degrade_to_v1` and `allow_degradation` are both enabled, the node also exposes current WanVideoWrapper v1-compatible reference image, pose image, and size/frame outputs for users who accept the documented semantic losses.
 
 ### SCAIL-Pose2 / SAM3
 

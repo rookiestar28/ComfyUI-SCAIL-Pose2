@@ -19,8 +19,28 @@ class SCAILPose2WanVideoSCAIL2Adapter:
             },
         }
 
-    RETURN_TYPES = ("SCAIL2_WANVIDEO_PAYLOAD", "STRING")
-    RETURN_NAMES = ("adapter_payload", "summary")
+    RETURN_TYPES = (
+        "SCAIL2_WANVIDEO_PAYLOAD",
+        "STRING",
+        "SCAIL_WAN_SCAIL_IMAGES",
+        "IMAGE",
+        "IMAGE",
+        "IMAGE",
+        "INT",
+        "INT",
+        "INT",
+    )
+    RETURN_NAMES = (
+        "condition",
+        "summary",
+        "wan_scail_images",
+        "ref_image",
+        "pose_images",
+        "clip_ref_image",
+        "width",
+        "height",
+        "num_frames",
+    )
     FUNCTION = "build"
     CATEGORY = "SCAIL-Pose2/WanVideoWrapper"
     DESCRIPTION = "Build a versioned SCAIL-2 adapter payload for WanVideoWrapper workflows."
@@ -36,7 +56,30 @@ class SCAILPose2WanVideoSCAIL2Adapter:
             degrade_to_v1=bool(degrade_to_v1),
             allow_degradation=bool(allow_degradation),
         )
-        return payload, summarize_wanvideo_scail2_payload(payload)
+        wan_scail_images = payload.get("wan_scail_v1_images")
+        if wan_scail_images is None:
+            return (
+                payload,
+                summarize_wanvideo_scail2_payload(payload),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        return (
+            payload,
+            summarize_wanvideo_scail2_payload(payload),
+            wan_scail_images,
+            wan_scail_images["ref_image"],
+            wan_scail_images["pose_images"],
+            wan_scail_images["clip_ref_image"],
+            wan_scail_images["width"],
+            wan_scail_images["height"],
+            wan_scail_images["num_frames"],
+        )
 
 
 NODE_CLASS_MAPPINGS = {
