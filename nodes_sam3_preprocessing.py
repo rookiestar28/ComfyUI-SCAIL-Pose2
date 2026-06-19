@@ -5,17 +5,16 @@ from __future__ import annotations
 from .scail2.colored_masks import (
     materialize_comfy_image,
     render_scail2_colored_mask_pair,
+    summarize_sam3_track_data,
 )
 from .scail2.observability import (
     elapsed_ms,
-    get_logger,
     make_progress,
     perf_counter_ms,
     safe_value_summary,
+    terminal_info,
 )
 from .scail2.sam3_preprocessing import require_sam3_predictors
-
-LOGGER = get_logger(__name__)
 
 
 class SCAIL2SAM3DependencyCheck:
@@ -86,16 +85,16 @@ class SCAILPose2ColoredMask:
     ):
         progress = make_progress(3)
         started_ms = perf_counter_ms()
-        LOGGER.info(
-            "SCAIL-Pose2 Colored Mask start: driving=%s ref_track=%s ref_mask=%s",
-            safe_value_summary(driving_track_data.get("masks"))
-            if isinstance(driving_track_data, dict)
-            else safe_value_summary(driving_track_data),
-            safe_value_summary(ref_track_data.get("masks"))
-            if isinstance(ref_track_data, dict)
-            else safe_value_summary(ref_track_data),
-            safe_value_summary(ref_mask),
+        terminal_info(
+            "Colored Mask start: "
+            f"driving={summarize_sam3_track_data(driving_track_data)} "
+            f"ref_track={summarize_sam3_track_data(ref_track_data) if ref_track_data is not None else None} "
+            f"ref_mask={safe_value_summary(ref_mask)}"
         )
+
+        def report(message: str) -> None:
+            terminal_info(f"Colored Mask {message}")
+
         result = render_scail2_colored_mask_pair(
             driving_track_data,
             ref_track_data=ref_track_data,
@@ -103,18 +102,20 @@ class SCAILPose2ColoredMask:
             object_indices=object_indices,
             sort_by=sort_by,
             replacement_mode=bool(replacement_mode),
+            progress=report,
         )
         progress.update()
+        terminal_info("Colored Mask materialize pose_video_mask")
         pose_mask = materialize_comfy_image(result.pose_video_mask)
         progress.update()
+        terminal_info("Colored Mask materialize reference_image_mask")
         reference_mask = materialize_comfy_image(result.reference_image_mask)
         progress.update()
-        LOGGER.info(
-            "SCAIL-Pose2 Colored Mask done: pose=%s reference=%s objects=%s elapsed_ms=%.2f",
-            safe_value_summary(pose_mask),
-            safe_value_summary(reference_mask),
-            len(result.object_order),
-            elapsed_ms(started_ms),
+        terminal_info(
+            "Colored Mask done: "
+            f"pose={safe_value_summary(pose_mask)} "
+            f"reference={safe_value_summary(reference_mask)} "
+            f"objects={len(result.object_order)} elapsed_ms={elapsed_ms(started_ms):.2f}"
         )
         return (
             pose_mask,

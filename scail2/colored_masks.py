@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Sequence
+
+from .observability import safe_value_summary
 
 BLACK_RGB_FLOAT = (0.0, 0.0, 0.0)
 WHITE_RGB_FLOAT = (1.0, 1.0, 1.0)
@@ -42,6 +45,40 @@ class ColoredMaskRenderResult:
     replacement_mode: bool
     driving_background: tuple[float, float, float]
     reference_background: tuple[float, float, float]
+
+
+ProgressCallback = Callable[[str], None]
+
+
+def summarize_sam3_track_data(track_data: Any) -> dict[str, Any]:
+    if not isinstance(track_data, dict):
+        return {"source": "unknown", "value": safe_value_summary(track_data)}
+
+    masks = track_data.get("masks")
+    packed_masks = track_data.get("packed_masks")
+    if masks is not None:
+        source = "masks"
+    elif packed_masks is not None:
+        source = "packed_masks"
+    else:
+        source = "empty"
+
+    summary: dict[str, Any] = {
+        "source": source,
+        "masks": safe_value_summary(masks),
+        "packed_masks": safe_value_summary(packed_masks),
+    }
+    if "orig_size" in track_data:
+        try:
+            summary["orig_size"] = list(_orig_size(track_data))
+        except ValueError:
+            summary["orig_size"] = "invalid"
+    if "n_frames" in track_data:
+        try:
+            summary["n_frames"] = int(track_data["n_frames"])
+        except (TypeError, ValueError):
+            summary["n_frames"] = "invalid"
+    return summary
 
 
 def _as_list(value: Any) -> Any:
@@ -321,9 +358,21 @@ def _render_track_masks(
     *,
     order: Sequence[int],
     background: tuple[float, float, float],
+    progress: ProgressCallback | None = None,
+    label: str = "track",
 ) -> tuple[tuple[tuple[tuple[float, float, float], ...], ...], ...]:
     rendered = []
-    for frame in masks.frames:
+    frame_log_interval = max(1, masks.frame_count // 10)
+    for frame_index, frame in enumerate(masks.frames):
+        if progress is not None and (
+            frame_index == 0
+            or frame_index == masks.frame_count - 1
+            or frame_index % frame_log_interval == 0
+        ):
+            progress(
+                f"render {label} frame {frame_index + 1}/{masks.frame_count} "
+                f"objects={len(order)} size={masks.width}x{masks.height}"
+            )
         rendered_rows = []
         for row_index in range(masks.height):
             rendered_row = []
@@ -376,8 +425,11 @@ def _render_plain_mask(
     mask: Any,
     *,
     background: tuple[float, float, float],
+    progress: ProgressCallback | None = None,
 ) -> tuple[tuple[tuple[tuple[float, float, float], ...], ...], ...]:
     normalized = _normalize_plain_mask(mask)
+    if progress is not None:
+        progress(f"render plain reference mask frames={len(normalized)}")
     rendered = []
     for frame in normalized:
         rows = []
@@ -400,13 +452,23 @@ def render_scail2_colored_mask_pair(
     object_indices: str = "",
     sort_by: str = "left_to_right",
     replacement_mode: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> ColoredMaskRenderResult:
     if ref_track_data is not None and ref_mask is not None:
         raise ValueError("Provide either ref_track_data or ref_mask, not both")
 
+    if progress is not None:
+        progress(f"normalize driving track {summarize_sam3_track_data(driving_track_data)}")
     driving = _normalize_track_data(driving_track_data)
+    if progress is not None:
+        progress(
+            f"driving normalized frames={driving.frame_count} "
+            f"objects={driving.object_count} size={driving.width}x{driving.height}"
+        )
     sorted_order = _sorted_object_order(driving, sort_by=sort_by)
     order = _filtered_order(sorted_order, object_indices)
+    if progress is not None:
+        progress(f"object order sort_by={sort_by} selected={list(order)}")
 
     driving_background = WHITE_RGB_FLOAT if replacement_mode else BLACK_RGB_FLOAT
     reference_background = BLACK_RGB_FLOAT if replacement_mode else WHITE_RGB_FLOAT
@@ -414,21 +476,37 @@ def render_scail2_colored_mask_pair(
         driving,
         order=order,
         background=driving_background,
+        progress=progress,
+        label="driving",
     )
 
     if ref_mask is not None:
         reference_image_mask = _render_plain_mask(
             ref_mask,
             background=reference_background,
+            progress=progress,
         )
     elif ref_track_data is not None:
+        if progress is not None:
+            progress(f"normalize reference track {summarize_sam3_track_data(ref_track_data)}")
         reference = _normalize_track_data(ref_track_data)
+        if progress is not None:
+            progress(
+                f"reference normalized frames={reference.frame_count} "
+                f"objects={reference.object_count} size={reference.width}x{reference.height}"
+            )
         reference_image_mask = _render_track_masks(
             reference,
             order=order,
             background=reference_background,
+            progress=progress,
+            label="reference",
         )
     else:
+        if progress is not None:
+            progress(
+                f"render solid reference mask frames=1 size={driving.width}x{driving.height}"
+            )
         reference_image_mask = _solid_image(
             frame_count=1,
             height=driving.height,
@@ -436,6 +514,11 @@ def render_scail2_colored_mask_pair(
             color=reference_background,
         )
 
+    if progress is not None:
+        progress(
+            f"render complete driving_frames={driving.frame_count} "
+            f"reference_frames={len(reference_image_mask)} selected_objects={len(order)}"
+        )
     return ColoredMaskRenderResult(
         pose_video_mask=pose_video_mask,
         reference_image_mask=reference_image_mask,

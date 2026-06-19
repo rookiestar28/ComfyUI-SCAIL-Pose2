@@ -13,6 +13,10 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
+def terminal_info(message: str) -> None:
+    print(f"[SCAIL-Pose2] {message}", flush=True)
+
+
 def perf_counter_ms() -> float:
     return time.perf_counter() * 1000.0
 
@@ -84,4 +88,3 @@ class ProgressReporter:
 
 def make_progress(total: int) -> ProgressReporter:
     return ProgressReporter(total=max(int(total), 1))
-

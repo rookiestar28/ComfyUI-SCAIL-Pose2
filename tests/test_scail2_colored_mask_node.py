@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 import types
 import unittest
 from contextlib import contextmanager
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from scail2.colored_masks import (
@@ -14,8 +16,9 @@ from scail2.colored_masks import (
     WHITE_RGB_FLOAT,
     materialize_comfy_image,
     render_scail2_colored_mask_pair,
+    summarize_sam3_track_data,
 )
-from scail2.observability import safe_value_summary
+from scail2.observability import safe_value_summary, terminal_info
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +107,55 @@ def fake_sam3_unpack_masks(unpacked_masks):
 
 
 class Scail2ColoredMaskNodeTests(unittest.TestCase):
+    def test_packed_sam3_track_summary_identifies_packed_masks_source(self) -> None:
+        packed = FakeTensorLike()
+        summary = summarize_sam3_track_data(
+            {
+                "packed_masks": packed,
+                "orig_size": (8, 8),
+                "n_frames": 5,
+            }
+        )
+
+        self.assertEqual("packed_masks", summary["source"])
+        self.assertEqual([8, 8], summary["orig_size"])
+        self.assertEqual(5, summary["n_frames"])
+        self.assertEqual("FakeTensorLike", summary["packed_masks"]["type"])
+        self.assertEqual([5, 8, 8, 3], summary["packed_masks"]["shape"])
+        self.assertEqual("NoneType", summary["masks"]["type"])
+
+    def test_terminal_info_prints_flushed_scail_pose2_prefix(self) -> None:
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            terminal_info("Colored Mask test")
+
+        self.assertIn("[SCAIL-Pose2] Colored Mask test", output.getvalue())
+
+    def test_render_progress_callback_reports_long_running_stages(self) -> None:
+        messages = []
+
+        render_scail2_colored_mask_pair(
+            track_data(
+                [
+                    [[[True, False]]],
+                    [[[False, True]]],
+                    [[[True, False]]],
+                ]
+            ),
+            object_indices="",
+            sort_by="none",
+            replacement_mode=False,
+            progress=messages.append,
+        )
+
+        combined = "\n".join(messages)
+        self.assertIn("normalize driving track", combined)
+        self.assertIn("driving normalized frames=3", combined)
+        self.assertIn("render driving frame 1/3", combined)
+        self.assertIn("render driving frame 3/3", combined)
+        self.assertIn("render complete", combined)
+
     def test_materialize_preserves_tensor_like_image_without_list_roundtrip(self) -> None:
         tensor = FakeTensorLike()
 
