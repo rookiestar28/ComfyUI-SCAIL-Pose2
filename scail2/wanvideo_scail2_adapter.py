@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from .condition import SCAIL2Condition, TYPE_SCAIL2_CONDITION
-from .masks import pack_semantic_mask_indices_to_runtime_28_channels
+from .masks import (
+    pack_semantic_mask_indices_to_runtime_28_channels,
+    pose_control_latent_spatial_size,
+)
 from .wanvideo_adapter import build_wan_scail_images_payload
 from .wanvideo_contracts import UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES
 
@@ -35,6 +38,10 @@ def _require_scail2_condition(condition: Any) -> SCAIL2Condition:
 
 
 def _runtime_masks_for_condition(condition: SCAIL2Condition) -> dict[str, Any]:
+    driving_latent_height, driving_latent_width = pose_control_latent_spatial_size(
+        height=condition.height,
+        width=condition.width,
+    )
     additional = tuple(
         pack_semantic_mask_indices_to_runtime_28_channels(
             item.mask_indices,
@@ -49,6 +56,8 @@ def _runtime_masks_for_condition(condition: SCAIL2Condition) -> dict[str, Any]:
         ),
         "driving": pack_semantic_mask_indices_to_runtime_28_channels(
             condition.driving_mask_indices,
+            target_latent_height=driving_latent_height,
+            target_latent_width=driving_latent_width,
             layout_role="driving",
         ),
         "additional_references": additional,

@@ -186,6 +186,45 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
         self.assertIn("WanVideoAddSCAIL2ConditionEmbeds", encoded)
         self.assertIn("RuntimeMaskLatent28", encoded)
 
+    def test_native_driving_mask_uses_pose_control_latent_shape(self) -> None:
+        from scail2.wanvideo_scail2_adapter import (
+            build_wanvideo_scail2_adapter_payload,
+        )
+
+        condition = build_scail2_condition(
+            mode="animation",
+            ref_image="ref",
+            ref_mask_frames=frames_from_colors([WHITE], height=16, width=16),
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=frames_from_colors([RED] * 5, height=16, width=16),
+            width=16,
+            height=16,
+            source_kind="unit_test",
+        )
+
+        payload = build_wanvideo_scail2_adapter_payload(condition)
+
+        self.assertEqual((16, 16, 5), (
+            payload["dimensions"]["width"],
+            payload["dimensions"]["height"],
+            payload["dimensions"]["num_frames"],
+        ))
+        self.assertEqual((1, 1, 28, 2, 2), payload["runtime_masks"]["reference"].shape)
+        self.assertEqual((1, 2, 28, 1, 1), payload["runtime_masks"]["driving"].shape)
+        self.assertEqual(
+            [1, 2, 28, 1, 1],
+            payload["schema"]["runtime_mask_layouts"]["driving"]["comfy_layout"][
+                "shape"
+            ],
+        )
+        self.assertEqual(
+            [1, 1, 28, 2, 2],
+            payload["schema"]["runtime_mask_layouts"]["reference"]["comfy_layout"][
+                "shape"
+            ],
+        )
+
     def test_lossy_v1_degradation_is_refused_by_default(self) -> None:
         from scail2.wanvideo_scail2_adapter import (
             build_wanvideo_scail2_adapter_payload,

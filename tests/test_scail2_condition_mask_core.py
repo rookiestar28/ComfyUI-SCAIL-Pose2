@@ -198,6 +198,23 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
                     odd_runtime.value(latent_frame=0, channel=2, row=row, col=col),
                 )
 
+    def test_runtime_mask_packing_accepts_explicit_target_latent_shape(
+        self,
+    ) -> None:
+        from scail2 import masks as scail_masks
+
+        runtime = scail_masks.pack_semantic_mask_indices_to_runtime_28_channels(
+            semantic_mask_indices(frames_from_colors([(255, 0, 0)] * 5, height=16, width=16)),
+            target_latent_height=1,
+            target_latent_width=1,
+            layout_role="driving",
+        )
+
+        self.assertEqual((1, 2, 28, 1, 1), runtime.shape)
+        self.assertEqual(16, runtime.source_height)
+        self.assertEqual(16, runtime.source_width)
+        self.assertEqual("driving", runtime.layout_role)
+
     def test_latent_shape_contract_separates_full_and_pose_control_layouts(
         self,
     ) -> None:
