@@ -87,11 +87,69 @@ def _unpack_packed_masks(track_data: dict[str, Any]) -> Any:
     return unpack_masks(packed)
 
 
+def _nearest_source_index(target_index: int, source_size: int, target_size: int) -> int:
+    return min(int(target_index * source_size / target_size), source_size - 1)
+
+
+def _resize_binary_mask_to_size(
+    mask: Any,
+    *,
+    height: int,
+    width: int,
+) -> tuple[tuple[Any, ...], ...]:
+    source_height = len(mask)
+    if source_height <= 0:
+        raise ValueError("SAM3 packed object masks must not be empty")
+    source_width = len(mask[0])
+    if source_width <= 0:
+        raise ValueError("SAM3 packed object mask rows must not be empty")
+    for row in mask:
+        if len(row) != source_width:
+            raise ValueError("SAM3 packed object mask rows must have consistent width")
+
+    if source_height == height and source_width == width:
+        return tuple(tuple(row) for row in mask)
+
+    # Official ComfyUI SCAIL resizes unpacked SAM3 packed masks to orig_size.
+    resized_rows = []
+    for row_index in range(height):
+        source_row = mask[_nearest_source_index(row_index, source_height, height)]
+        resized_rows.append(
+            tuple(
+                source_row[_nearest_source_index(col_index, source_width, width)]
+                for col_index in range(width)
+            )
+        )
+    return tuple(resized_rows)
+
+
+def _resize_track_masks_to_orig_size(
+    raw_masks: Any,
+    *,
+    height: int,
+    width: int,
+) -> tuple[tuple[tuple[tuple[Any, ...], ...], ...], ...]:
+    raw_frames = _as_list(raw_masks)
+    return tuple(
+        tuple(
+            _resize_binary_mask_to_size(object_mask, height=height, width=width)
+            for object_mask in frame
+        )
+        for frame in raw_frames
+    )
+
+
 def _normalize_track_data(track_data: dict[str, Any]) -> NormalizedTrackMasks:
     height, width = _orig_size(track_data)
     raw_masks = track_data.get("masks")
     if raw_masks is None:
         raw_masks = _unpack_packed_masks(track_data)
+        if raw_masks is not None:
+            raw_masks = _resize_track_masks_to_orig_size(
+                raw_masks,
+                height=height,
+                width=width,
+            )
 
     if raw_masks is None:
         frame_count = int(track_data.get("n_frames", 1))

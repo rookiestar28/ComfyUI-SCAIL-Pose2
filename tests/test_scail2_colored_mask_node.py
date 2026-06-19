@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import types
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 
 from scail2.colored_masks import (
@@ -50,7 +52,74 @@ def pixel(image, frame=0, row=0, col=0):
     return tuple(image[frame][row][col])
 
 
+@contextmanager
+def fake_sam3_unpack_masks(unpacked_masks):
+    module_names = (
+        "comfy",
+        "comfy.ldm",
+        "comfy.ldm.sam3",
+        "comfy.ldm.sam3.tracker",
+    )
+    previous_modules = {name: sys.modules.get(name) for name in module_names}
+
+    comfy_module = types.ModuleType("comfy")
+    ldm_module = types.ModuleType("comfy.ldm")
+    sam3_module = types.ModuleType("comfy.ldm.sam3")
+    tracker_module = types.ModuleType("comfy.ldm.sam3.tracker")
+    tracker_module.unpack_masks = lambda _packed: unpacked_masks
+    comfy_module.ldm = ldm_module
+    ldm_module.sam3 = sam3_module
+    sam3_module.tracker = tracker_module
+
+    sys.modules["comfy"] = comfy_module
+    sys.modules["comfy.ldm"] = ldm_module
+    sys.modules["comfy.ldm.sam3"] = sam3_module
+    sys.modules["comfy.ldm.sam3.tracker"] = tracker_module
+    try:
+        yield
+    finally:
+        for name, module in previous_modules.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+
 class Scail2ColoredMaskNodeTests(unittest.TestCase):
+    def test_packed_masks_are_resized_to_orig_size_before_rendering(self) -> None:
+        track = {
+            "packed_masks": object(),
+            "orig_size": (1, 1),
+            "n_frames": 1,
+        }
+
+        with fake_sam3_unpack_masks([[[[True, False], [False, False]]]]):
+            result = render_scail2_colored_mask_pair(
+                track,
+                object_indices="",
+                sort_by="none",
+                replacement_mode=False,
+            )
+
+        self.assertEqual(BLUE_RGB_FLOAT, pixel(result.pose_video_mask))
+        self.assertEqual(WHITE_RGB_FLOAT, pixel(result.reference_image_mask))
+
+    def test_packed_masks_none_renders_solid_backgrounds(self) -> None:
+        result = render_scail2_colored_mask_pair(
+            {
+                "packed_masks": None,
+                "orig_size": (2, 2),
+                "n_frames": 2,
+            },
+            object_indices="",
+            sort_by="none",
+            replacement_mode=False,
+        )
+
+        self.assertEqual(BLACK_RGB_FLOAT, pixel(result.pose_video_mask, frame=0, row=0, col=0))
+        self.assertEqual(BLACK_RGB_FLOAT, pixel(result.pose_video_mask, frame=1, row=1, col=1))
+        self.assertEqual(WHITE_RGB_FLOAT, pixel(result.reference_image_mask, frame=0, row=1, col=1))
+
     def test_shared_left_to_right_sort_keeps_reference_and_driving_colors(self) -> None:
         driving = track_data(
             [
