@@ -29,9 +29,11 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 
 ### SCAIL-Pose
 
-- `NLFModelLoader`: loads an NLF pose model from the ComfyUI `models/nlf/` folder and returns an `NLF_MODEL` handle for pose prediction.
+- `NLFModelLoader`: loads an NLF pose model from the ComfyUI `models/nlf/` folder and returns an `NLF_MODEL` handle for pose prediction. This core loader expects the package's `.safetensors` NLF model format.
 - `NLFPredictPoses`: runs the loaded NLF model on input images and returns `NLFPRED` pose data plus detected bounding boxes.
 - `ConvertOpenPoseKeypointsToDWPose`: converts OpenPose-style keypoint data into the DWPose-compatible structure used by the render and alignment path.
+
+WanVideoWrapper also provides its own `(Download)Load NLF Model`, `Load NLF Model`, and `NLF Predict` nodes. Those wrapper nodes use the wrapper `NLFMODEL` socket and `.torchscript` model files. `NLF_MODEL` and `NLFMODEL` are not directly wire-compatible; use this package's NLF nodes for the core SCAIL-Pose flow, and use WanVideoWrapper's NLF nodes for wrapper-owned torchscript workflows.
 
 ### WanAnimatePreprocess
 

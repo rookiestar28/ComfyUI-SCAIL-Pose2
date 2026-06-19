@@ -116,6 +116,17 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertNotIn("reference/docs", readme)
         self.assertNotIn(".planning", readme)
 
+    def test_readme_distinguishes_core_and_wrapper_nlf_families(self) -> None:
+        readme = read_text("readme.md")
+
+        self.assertIn("NLF_MODEL", readme)
+        self.assertIn("NLFMODEL", readme)
+        self.assertIn(".safetensors", readme)
+        self.assertIn(".torchscript", readme)
+        self.assertIn("(Download)Load NLF Model", readme)
+        self.assertIn("not directly wire-compatible", readme)
+        self.assertNotIn("drop-in replacement", readme)
+
     def test_publish_workflow_matches_registry_release_boundary(self) -> None:
         workflow = read_text(".github/workflows/publish.yml")
 
