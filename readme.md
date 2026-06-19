@@ -56,7 +56,7 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 
 ### SCAIL-Pose2 / SCAIL-2
 
-- `SCAILPose2SCAIL2Condition`: builds a validated `SCAIL2_CONDITION` payload from `pose_video`, `pose_video_mask`, `ref_image`, `ref_mask`, optional `additional_ref_image` / `additional_ref_mask`, mode, segment settings, and continuation metadata. Supported modes are `animation`, `replacement`, and `pose_driven`.
+- `SCAILPose2SCAIL2Condition`: builds a validated `SCAIL2_CONDITION` payload from `pose_video`, `pose_video_mask`, `ref_image`, `ref_mask`, optional `additional_ref_image` / `additional_ref_mask`, mode, dimensions, and `num_frames`. Supported modes are `animation` and `replacement`; pose-rendered driving videos are animation-mode inputs. Long-video context length and overlap should be controlled by WanVideoWrapper context options downstream.
 
 ## License
 

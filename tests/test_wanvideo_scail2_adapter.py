@@ -44,13 +44,9 @@ def build_condition(*, with_wrapper_images: bool = False):
         driving_mask_frames=frames_from_colors([RED, GREEN, BLUE, RED, GREEN]),
         width=8,
         height=8,
-        segment_len=81,
-        segment_overlap=5,
         additional_ref_images=["extra"],
         additional_ref_masks=[frames_from_colors([BLUE])],
         source_kind="unit_test",
-        previous_frame_count=2,
-        video_frame_offset=4,
     )
 
 
@@ -146,8 +142,14 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
             ),
         )
         self.assertEqual(1, condition.driving_mask_indices[0][0][0])
+        self.assertEqual({"source_kind": "unit_test"}, payload["source"])
+        self.assertNotIn("segment", payload)
         self.assertEqual((), payload["unsupported_current_wrapper_features"])
         self.assertIn("mask_latents_28_channel", payload["legacy_v1_semantic_losses"])
+        self.assertNotIn(
+            "previous_frame_continuation",
+            payload["schema"]["degradation"]["v1_semantic_losses"],
+        )
         self.assertEqual((), payload["semantic_losses"])
 
     def test_schema_metadata_is_json_safe(self) -> None:

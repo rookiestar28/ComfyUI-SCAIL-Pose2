@@ -24,9 +24,9 @@
       "role": "validated_scail2_condition_builder",
       "output_type": "SCAIL2_CONDITION",
       "input_order": ["pose_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"],
-      "modes": ["animation", "replacement", "pose_driven"],
+      "modes": ["animation", "replacement"],
       "supports_additional_references": true,
-      "supports_continuation_metadata": true
+      "supports_continuation_metadata": false
     },
     {
       "id": "wanvideo_scail2_adapter",
@@ -47,12 +47,8 @@
     "num_frames",
     "ref_mask_indices",
     "driving_mask_indices",
-    "segment_len",
-    "segment_overlap",
     "additional_references",
     "source_kind",
-    "previous_frame_count",
-    "video_frame_offset",
     "unsupported_wrapper_features"
   ],
   "wanvideo_scail2_adapter": {

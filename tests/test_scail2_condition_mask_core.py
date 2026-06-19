@@ -206,11 +206,24 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
     def test_condition_rejects_mismatched_pose_and_mask_frame_counts(self) -> None:
         with self.assertRaisesRegex(ValueError, "frame counts must match"):
             build_scail2_condition(
-                mode="pose_driven",
+                mode="animation",
                 ref_image="ref",
                 ref_mask_frames=frames_from_colors([(255, 255, 255)]),
                 pose_video="pose",
                 pose_frame_count=4,
+                driving_mask_frames=frames_from_colors([(255, 0, 0)] * 5),
+                width=1,
+                height=1,
+            )
+
+    def test_condition_rejects_pose_driven_as_independent_mode(self) -> None:
+        with self.assertRaisesRegex(ValueError, "mode must be one of animation, replacement"):
+            build_scail2_condition(
+                mode="pose_driven",
+                ref_image="ref",
+                ref_mask_frames=frames_from_colors([(255, 255, 255)]),
+                pose_video="pose",
+                pose_frame_count=5,
                 driving_mask_frames=frames_from_colors([(255, 0, 0)] * 5),
                 width=1,
                 height=1,
@@ -245,7 +258,7 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
                 additional_ref_masks=[frames_from_colors([(255, 0, 0)])],
             )
 
-    def test_condition_rejects_invalid_segment_settings(self) -> None:
+    def test_condition_rejects_empty_source_kind(self) -> None:
         common_kwargs = {
             "mode": "animation",
             "ref_image": "ref",
@@ -257,10 +270,8 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
             "height": 1,
         }
 
-        with self.assertRaisesRegex(ValueError, "segment_overlap"):
-            build_scail2_condition(**common_kwargs, segment_len=5, segment_overlap=5)
-        with self.assertRaisesRegex(ValueError, "segment_len"):
-            build_scail2_condition(**common_kwargs, segment_len=0, segment_overlap=1)
+        with self.assertRaisesRegex(ValueError, "source_kind"):
+            build_scail2_condition(**common_kwargs, source_kind=" ")
 
     def test_core_modules_do_not_import_heavy_runtime_modules(self) -> None:
         masks = importlib.import_module("scail2.masks")

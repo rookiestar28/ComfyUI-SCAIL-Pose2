@@ -83,10 +83,12 @@ class WorkflowSkeletonTests(unittest.TestCase):
                 "replace_flag",
                 "driving_mask_indices",
                 "source_kind",
-                "previous_frame_count",
-                "video_frame_offset",
             }.issubset(fields)
         )
+        self.assertNotIn("segment_len", fields)
+        self.assertNotIn("segment_overlap", fields)
+        self.assertNotIn("previous_frame_count", fields)
+        self.assertNotIn("video_frame_offset", fields)
         self.assertEqual(
             "native_scail2_embeds",
             data["wanvideo_scail2_adapter"]["target"]["current_wrapper_path"],

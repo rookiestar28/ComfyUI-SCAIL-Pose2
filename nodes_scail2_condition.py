@@ -91,14 +91,10 @@ class SCAILPose2SCAIL2Condition:
                 "pose_video_mask": ("IMAGE",),
                 "ref_image": ("IMAGE",),
                 "ref_mask": ("IMAGE",),
-                "mode": (["animation", "replacement", "pose_driven"], {"default": "animation"}),
+                "mode": (["animation", "replacement"], {"default": "animation"}),
                 "width": ("INT", {"default": 512, "min": 1, "step": 1}),
                 "height": ("INT", {"default": 512, "min": 1, "step": 1}),
                 "num_frames": ("INT", {"default": 81, "min": 1, "step": 1}),
-                "segment_len": ("INT", {"default": 81, "min": 1, "step": 1}),
-                "segment_overlap": ("INT", {"default": 5, "min": 0, "step": 1}),
-                "previous_frame_count": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "video_frame_offset": ("INT", {"default": 0, "min": 0, "step": 1}),
             },
             "optional": {
                 "additional_ref_image": ("IMAGE",),
@@ -122,10 +118,6 @@ class SCAILPose2SCAIL2Condition:
         width,
         height,
         num_frames,
-        segment_len,
-        segment_overlap,
-        previous_frame_count=0,
-        video_frame_offset=0,
         additional_ref_image=None,
         additional_ref_mask=None,
     ):
@@ -145,13 +137,9 @@ class SCAILPose2SCAIL2Condition:
             ),
             width=width,
             height=height,
-            segment_len=segment_len,
-            segment_overlap=segment_overlap,
             additional_ref_images=additional_images,
             additional_ref_masks=additional_masks,
             source_kind="comfy_node:SCAILPose2SCAIL2Condition",
-            previous_frame_count=previous_frame_count,
-            video_frame_offset=video_frame_offset,
         )
         return (condition,)
 

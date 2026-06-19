@@ -23,8 +23,6 @@ LEGACY_WRAPPER_PATH = "v1_scail_embeds"
 SCAIL2_TO_WANVIDEO_V1_SEMANTIC_LOSSES: tuple[str, ...] = (
     *UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES,
     "source_kind_metadata",
-    "previous_frame_continuation",
-    "video_frame_offset",
 )
 
 
@@ -198,12 +196,6 @@ def build_wanvideo_scail2_adapter_payload(
         },
         "source": {
             "source_kind": scail2_condition.source_kind,
-            "previous_frame_count": scail2_condition.previous_frame_count,
-            "video_frame_offset": scail2_condition.video_frame_offset,
-        },
-        "segment": {
-            "segment_len": scail2_condition.segment_len,
-            "segment_overlap": scail2_condition.segment_overlap,
         },
         "rgb_masks": {
             "reference_indices": scail2_condition.ref_mask_indices,

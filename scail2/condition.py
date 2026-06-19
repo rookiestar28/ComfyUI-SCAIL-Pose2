@@ -14,8 +14,8 @@ from .wanvideo_contracts import UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES
 
 
 TYPE_SCAIL2_CONDITION = "SCAIL2_CONDITION"
-SCAIL2Mode = Literal["animation", "replacement", "pose_driven"]
-SCAIL2_MODES: tuple[str, ...] = ("animation", "replacement", "pose_driven")
+SCAIL2Mode = Literal["animation", "replacement"]
+SCAIL2_MODES: tuple[str, ...] = ("animation", "replacement")
 
 
 @dataclass(frozen=True)
@@ -36,12 +36,8 @@ class SCAIL2Condition:
     ref_mask_indices: tuple[tuple[tuple[int, ...], ...], ...]
     pose_video: Any
     driving_mask_indices: tuple[tuple[tuple[int, ...], ...], ...]
-    segment_len: int
-    segment_overlap: int
     additional_references: tuple[AdditionalReference, ...]
     source_kind: str = "user_rgb_masks"
-    previous_frame_count: int = 0
-    video_frame_offset: int = 0
     mask_palette: tuple[str, ...] = SEMANTIC_MASK_COLOR_NAMES
     unsupported_wrapper_features: tuple[
         str, ...
@@ -57,18 +53,6 @@ def _positive_int(name: str, value: Any) -> int:
         raise ValueError(f"{name} must be a positive integer") from exc
     if parsed <= 0:
         raise ValueError(f"{name} must be a positive integer")
-    return parsed
-
-
-def _non_negative_int(name: str, value: Any) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be a non-negative integer")
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a non-negative integer") from exc
-    if parsed < 0:
-        raise ValueError(f"{name} must be a non-negative integer")
     return parsed
 
 
@@ -152,34 +136,18 @@ def build_scail2_condition(
     driving_mask_frames: Sequence[Any],
     width: Any,
     height: Any,
-    segment_len: Any = 81,
-    segment_overlap: Any = 5,
     additional_ref_images: Sequence[Any] | None = None,
     additional_ref_masks: Sequence[Sequence[Any]] | None = None,
     source_kind: Any = "user_rgb_masks",
-    previous_frame_count: Any = 0,
-    video_frame_offset: Any = 0,
 ) -> SCAIL2Condition:
     if mode not in SCAIL2_MODES:
         raise ValueError(f"mode must be one of {', '.join(SCAIL2_MODES)}")
     width_value = _positive_int("width", width)
     height_value = _positive_int("height", height)
     pose_frames = _positive_int("pose_frame_count", pose_frame_count)
-    segment_len_value = _positive_int("segment_len", segment_len)
-    segment_overlap_value = _positive_int("segment_overlap", segment_overlap)
-    if segment_overlap_value >= segment_len_value:
-        raise ValueError("segment_overlap must be smaller than segment_len")
     source_kind_value = str(source_kind).strip()
     if not source_kind_value:
         raise ValueError("source_kind must not be empty")
-    previous_frame_count_value = _non_negative_int(
-        "previous_frame_count",
-        previous_frame_count,
-    )
-    video_frame_offset_value = _non_negative_int(
-        "video_frame_offset",
-        video_frame_offset,
-    )
 
     ref_mask_indices = _normalize_mask_indices(
         ref_mask_frames,
@@ -225,10 +193,6 @@ def build_scail2_condition(
         ref_mask_indices=ref_mask_indices,
         pose_video=pose_video,
         driving_mask_indices=driving_mask_indices,
-        segment_len=segment_len_value,
-        segment_overlap=segment_overlap_value,
         additional_references=additional_references,
         source_kind=source_kind_value,
-        previous_frame_count=previous_frame_count_value,
-        video_frame_offset=video_frame_offset_value,
     )

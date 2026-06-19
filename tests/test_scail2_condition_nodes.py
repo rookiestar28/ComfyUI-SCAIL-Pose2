@@ -60,8 +60,21 @@ class Scail2ConditionNodeTests(unittest.TestCase):
         self.assertEqual(("condition",), node_cls.RETURN_NAMES)
         input_types = node_cls.INPUT_TYPES()
         self.assertEqual(
-            ("pose_video", "pose_video_mask", "ref_image", "ref_mask"),
-            tuple(input_types["required"])[:4],
+            (
+                "pose_video",
+                "pose_video_mask",
+                "ref_image",
+                "ref_mask",
+                "mode",
+                "width",
+                "height",
+                "num_frames",
+            ),
+            tuple(input_types["required"]),
+        )
+        self.assertEqual(
+            ["animation", "replacement"],
+            input_types["required"]["mode"][0],
         )
         self.assertEqual(
             ("additional_ref_image", "additional_ref_mask"),
@@ -72,7 +85,7 @@ class Scail2ConditionNodeTests(unittest.TestCase):
         node = condition_node()
         driving_mask = frames_from_colors([RED, GREEN, RED, GREEN, RED])
 
-        for mode in ("animation", "replacement", "pose_driven"):
+        for mode in ("animation", "replacement"):
             condition, = node.build(
                 pose_video="pose",
                 pose_video_mask=driving_mask,
@@ -82,10 +95,6 @@ class Scail2ConditionNodeTests(unittest.TestCase):
                 width=1,
                 height=1,
                 num_frames=5,
-                segment_len=81,
-                segment_overlap=5,
-                previous_frame_count=2,
-                video_frame_offset=4,
             )
 
             self.assertEqual(TYPE_SCAIL2_CONDITION, condition.type_name)
@@ -95,10 +104,23 @@ class Scail2ConditionNodeTests(unittest.TestCase):
             self.assertEqual(1, condition.driving_mask_indices[0][0][0])
             self.assertEqual(2, condition.driving_mask_indices[1][0][0])
             self.assertEqual("comfy_node:SCAILPose2SCAIL2Condition", condition.source_kind)
-            self.assertEqual(2, condition.previous_frame_count)
-            self.assertEqual(4, condition.video_frame_offset)
             with self.assertRaises(FrozenInstanceError):
                 condition.mode = "animation"
+
+    def test_condition_node_rejects_pose_driven_as_independent_mode(self) -> None:
+        node = condition_node()
+
+        with self.assertRaisesRegex(ValueError, "mode must be one of animation, replacement"):
+            node.build(
+                pose_video="pose",
+                pose_video_mask=frames_from_colors([RED] * 5),
+                ref_image="ref",
+                ref_mask=frames_from_colors([WHITE]),
+                mode="pose_driven",
+                width=1,
+                height=1,
+                num_frames=5,
+            )
 
     def test_condition_node_accepts_paired_additional_references(self) -> None:
         node = condition_node()
@@ -112,8 +134,6 @@ class Scail2ConditionNodeTests(unittest.TestCase):
             width=1,
             height=1,
             num_frames=5,
-            segment_len=81,
-            segment_overlap=5,
             additional_ref_image=["extra_ref"],
             additional_ref_mask=frames_from_colors([GREEN]),
         )
@@ -133,16 +153,12 @@ class Scail2ConditionNodeTests(unittest.TestCase):
             "width": 1,
             "height": 1,
             "num_frames": 5,
-            "segment_len": 81,
-            "segment_overlap": 5,
         }
 
         with self.assertRaisesRegex(ValueError, "frame counts must match"):
             node.build(**{**common, "num_frames": 4})
         with self.assertRaisesRegex(ValueError, "additional_ref_mask"):
             node.build(**{**common, "additional_ref_image": ["extra"]})
-        with self.assertRaisesRegex(ValueError, "segment_overlap"):
-            node.build(**{**common, "segment_len": 5, "segment_overlap": 5})
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             node.build(**{**common, "pose_video_mask": frames_from_colors([(128, 0, 0)] * 5)})
 

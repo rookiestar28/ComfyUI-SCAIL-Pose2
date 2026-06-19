@@ -215,8 +215,6 @@ def build_condition_from_sam3_tracks(
     driving_track_ids: Sequence[Any] | None = None,
     ref_background_rgb: Sequence[Any] = BLACK_RGB,
     driving_background_rgb: Sequence[Any] = BLACK_RGB,
-    segment_len: Any = 81,
-    segment_overlap: Any = 5,
 ) -> SAM3ConditionPayload:
     ref_bundle = sam3_tracks_to_semantic_mask_frames(
         ref_track_masks,
@@ -242,8 +240,6 @@ def build_condition_from_sam3_tracks(
         driving_mask_frames=driving_bundle.frames,
         width=width,
         height=height,
-        segment_len=segment_len,
-        segment_overlap=segment_overlap,
     )
     return SAM3ConditionPayload(
         condition=condition,
