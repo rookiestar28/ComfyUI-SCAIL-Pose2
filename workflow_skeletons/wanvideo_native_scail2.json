@@ -10,6 +10,15 @@
       "role": "user_supplied_images_tracks_models_and_prompts"
     },
     {
+      "id": "sam3_video_track",
+      "class_type": "SAM3_VideoTrack",
+      "display_name": "SAM3 Video Track",
+      "role": "comfyui_builtin_sam3_video_track",
+      "outputs": [
+        { "name": "track_data", "type": "SAM3_TRACK_DATA" }
+      ]
+    },
+    {
       "id": "colored_masks",
       "class_type": "SCAILPose2ColoredMask",
       "role": "sam3_track_colored_mask_creation",
@@ -66,8 +75,13 @@
   "links": [
     {
       "from": ["workflow_inputs", "images"],
+      "to": ["sam3_video_track", "images"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["sam3_video_track", "track_data"],
       "to": ["colored_masks", "driving_track_data"],
-      "type": "TRACK_DATA"
+      "type": "SAM3_TRACK_DATA"
     },
     {
       "from": ["colored_masks", "pose_video_mask"],

@@ -52,7 +52,7 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 ### SCAIL-Pose2 / SAM3
 
 - `SCAIL2SAM3DependencyCheck`: checks whether optional SAM3 preprocessing dependencies are available in the active ComfyUI environment without making SAM3 a startup requirement.
-- `SCAILPose2ColoredMask`: renders identity-colored SCAIL-2 RGB masks from existing SAM3 track data. It supports shared identity sorting, object filtering, animation/replacement background semantics, optional reference track data, and optional plain reference masks.
+- `SCAILPose2ColoredMask`: renders identity-colored SCAIL-2 RGB masks from existing SAM3 track data. Connect ComfyUI's built-in `SAM3 Video Track.track_data` output to this node's `driving_track_data` input. It supports shared identity sorting, object filtering, animation/replacement background semantics, optional reference track data, and optional plain reference masks. Colored Mask `ref_mask` is optional; if no reference track or plain mask is connected, the node emits a solid `reference_image_mask`. Packed SAM3 masks are unpacked and resized to `orig_size` before rendering.
 
 ### SCAIL-Pose2 / SCAIL-2
 
@@ -61,6 +61,8 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 ## Native SCAIL-2 Workflow Notes
 
 For native WanVideoWrapper SCAIL-2 workflows, connect `SCAILPose2WanVideoSCAIL2Adapter.condition` to `WanVideoAddSCAIL2ConditionEmbeds.condition`, then send that node's `image_embeds` output to `WanVideo Sampler v2.image_embeds`. Use `WanVideo Context Options` for long-video `context_frames`, stride, and overlap by connecting its `context_options` output to `WanVideo Sampler v2.context_options`.
+
+When using SAM3 masks, connect `SCAILPose2ColoredMask.pose_video_mask` to `SCAILPose2SCAIL2Condition.pose_video_mask`. If you do not provide a separate reference mask, connect `SCAILPose2ColoredMask.reference_image_mask` to `SCAILPose2SCAIL2Condition.ref_mask` so the Condition payload still receives the reference-mask signal expected by SCAIL-2 conditioning.
 
 The SCAIL-Pose2 Condition node does not expose SCAIL-2 segment or continuation controls. Wrapper context windows are supported by the wrapper-native SCAIL-2 path, but official SCAIL-2 clean-history continuation is not claimed by this package.
 

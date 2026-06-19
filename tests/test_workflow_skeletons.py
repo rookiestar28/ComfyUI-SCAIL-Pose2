@@ -156,6 +156,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
 
         self.assertTrue(
             {
+                "SAM3_VideoTrack",
                 "SCAILPose2ColoredMask",
                 "SCAILPose2SCAIL2Condition",
                 "SCAILPose2WanVideoSCAIL2Adapter",
@@ -164,6 +165,22 @@ class WorkflowSkeletonTests(unittest.TestCase):
                 wanvideo_contracts.NODE_WAN_EMPTY_EMBEDS,
                 wanvideo_contracts.NODE_WAN_SAMPLER_V2,
             }.issubset(class_types)
+        )
+        self.assertIn(
+            (
+                ("sam3_video_track", "track_data"),
+                ("colored_masks", "driving_track_data"),
+                "SAM3_TRACK_DATA",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("colored_masks", "reference_image_mask"),
+                ("scail2_condition", "ref_mask"),
+                "IMAGE",
+            ),
+            links,
         )
         self.assertIn(
             (
