@@ -139,11 +139,45 @@ def _resize_track_masks_to_orig_size(
     )
 
 
+def _mask_shape(mask: Any) -> tuple[Any, Any]:
+    try:
+        mask_height = len(mask)
+    except TypeError:
+        return ("unknown", "unknown")
+    if mask_height <= 0:
+        return (mask_height, 0)
+    try:
+        mask_width = len(mask[0])
+    except TypeError:
+        mask_width = "unknown"
+    return (mask_height, mask_width)
+
+
+def _track_shape_error(
+    *,
+    source_field: str,
+    frame_index: int,
+    object_index: int,
+    expected_size: tuple[int, int],
+    actual_shape: tuple[Any, Any],
+) -> ValueError:
+    return ValueError(
+        "SAM3 track mask shape mismatch: "
+        f"source={source_field} "
+        f"frame={frame_index} "
+        f"object={object_index} "
+        f"orig_size={expected_size} "
+        f"actual_shape={actual_shape}"
+    )
+
+
 def _normalize_track_data(track_data: dict[str, Any]) -> NormalizedTrackMasks:
     height, width = _orig_size(track_data)
     raw_masks = track_data.get("masks")
+    source_field = "masks"
     if raw_masks is None:
         raw_masks = _unpack_packed_masks(track_data)
+        source_field = "packed_masks"
         if raw_masks is not None:
             raw_masks = _resize_track_masks_to_orig_size(
                 raw_masks,
@@ -178,13 +212,23 @@ def _normalize_track_data(track_data: dict[str, Any]) -> NormalizedTrackMasks:
         normalized_objects = []
         for object_index, object_mask in enumerate(frame):
             if len(object_mask) != height:
-                raise ValueError(
-                    f"SAM3 object {object_index} frame {frame_index} height mismatch"
+                raise _track_shape_error(
+                    source_field=source_field,
+                    frame_index=frame_index,
+                    object_index=object_index,
+                    expected_size=(height, width),
+                    actual_shape=_mask_shape(object_mask),
                 )
             normalized_rows = []
             for row in object_mask:
                 if len(row) != width:
-                    raise ValueError("SAM3 object masks must match orig_size width")
+                    raise _track_shape_error(
+                        source_field=source_field,
+                        frame_index=frame_index,
+                        object_index=object_index,
+                        expected_size=(height, width),
+                        actual_shape=_mask_shape(object_mask),
+                    )
                 normalized_rows.append(tuple(_as_bool(value) for value in row))
             normalized_objects.append(tuple(normalized_rows))
         normalized_frames.append(tuple(normalized_objects))

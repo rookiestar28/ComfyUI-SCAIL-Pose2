@@ -30,14 +30,33 @@ class SCAILPose2ColoredMask:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "driving_track_data": ("SAM3_TRACK_DATA",),
+                "driving_track_data": (
+                    "SAM3_TRACK_DATA",
+                    {"tooltip": "SAM3 track of the driving pose video."},
+                ),
                 "object_indices": ("STRING", {"default": ""}),
                 "sort_by": (["left_to_right", "area", "none"], {"default": "left_to_right"}),
                 "replacement_mode": ("BOOLEAN", {"default": False}),
             },
             "optional": {
-                "ref_track_data": ("SAM3_TRACK_DATA",),
-                "ref_mask": ("MASK",),
+                "ref_track_data": (
+                    "SAM3_TRACK_DATA",
+                    {
+                        "tooltip": (
+                            "Optional SAM3 track for reference identities. "
+                            "Do not connect when using ref_mask."
+                        )
+                    },
+                ),
+                "ref_mask": (
+                    "MASK",
+                    {
+                        "tooltip": (
+                            "Optional plain MASK for the reference subject. "
+                            "Do not connect when using ref_track_data."
+                        )
+                    },
+                ),
             },
         }
 

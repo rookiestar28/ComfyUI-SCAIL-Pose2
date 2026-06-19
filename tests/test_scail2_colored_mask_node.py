@@ -120,6 +120,64 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         self.assertEqual(BLACK_RGB_FLOAT, pixel(result.pose_video_mask, frame=1, row=1, col=1))
         self.assertEqual(WHITE_RGB_FLOAT, pixel(result.reference_image_mask, frame=0, row=1, col=1))
 
+    def test_missing_reference_inputs_render_solid_reference_mask(self) -> None:
+        result = render_scail2_colored_mask_pair(
+            track_data([[[[True, False]]]]),
+            object_indices="",
+            sort_by="none",
+            replacement_mode=False,
+        )
+
+        self.assertEqual(BLUE_RGB_FLOAT, pixel(result.pose_video_mask, col=0))
+        self.assertEqual(BLACK_RGB_FLOAT, pixel(result.pose_video_mask, col=1))
+        self.assertEqual(WHITE_RGB_FLOAT, pixel(result.reference_image_mask, col=0))
+        self.assertEqual(WHITE_RGB_FLOAT, pixel(result.reference_image_mask, col=1))
+
+    def test_rejects_simultaneous_reference_inputs(self) -> None:
+        driving = track_data([[[[True]]]])
+
+        with self.assertRaisesRegex(ValueError, "either ref_track_data or ref_mask"):
+            render_scail2_colored_mask_pair(
+                driving,
+                ref_track_data=driving,
+                ref_mask=[[True]],
+                object_indices="",
+                sort_by="none",
+                replacement_mode=False,
+            )
+
+    def test_track_shape_errors_include_source_and_shape_context(self) -> None:
+        track = {
+            "masks": [[[[True], [False]]]],
+            "orig_size": (1, 1),
+            "n_frames": 1,
+        }
+
+        with self.assertRaisesRegex(ValueError, "source=masks") as error_context:
+            render_scail2_colored_mask_pair(
+                track,
+                object_indices="",
+                sort_by="none",
+                replacement_mode=False,
+            )
+
+        message = str(error_context.exception)
+        self.assertIn("orig_size=(1, 1)", message)
+        self.assertIn("actual_shape=(2, 1)", message)
+        self.assertIn("frame=0", message)
+        self.assertIn("object=0", message)
+
+    def test_colored_mask_node_reference_inputs_have_tooltips(self) -> None:
+        package = import_root_package()
+        node_class = package.NODE_CLASS_MAPPINGS["SCAILPose2ColoredMask"]
+
+        input_types = node_class.INPUT_TYPES()
+        ref_track_config = input_types["optional"]["ref_track_data"][1]
+        ref_mask_config = input_types["optional"]["ref_mask"][1]
+
+        self.assertIn("SAM3 track", ref_track_config["tooltip"])
+        self.assertIn("plain MASK", ref_mask_config["tooltip"])
+
     def test_shared_left_to_right_sort_keeps_reference_and_driving_colors(self) -> None:
         driving = track_data(
             [
@@ -200,6 +258,8 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         self.assertFalse(any(name.startswith("ultralytics") for name in sys.modules))
 
         node = package.NODE_CLASS_MAPPINGS["SCAILPose2ColoredMask"]()
+        self.assertEqual(("IMAGE", "IMAGE"), node.RETURN_TYPES)
+        self.assertEqual(("pose_video_mask", "reference_image_mask"), node.RETURN_NAMES)
         pose_mask, reference_mask = node.build(
             track_data([[[[True]]]]),
             object_indices="",
