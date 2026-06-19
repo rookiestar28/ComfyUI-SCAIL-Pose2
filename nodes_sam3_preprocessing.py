@@ -6,7 +6,16 @@ from .scail2.colored_masks import (
     materialize_comfy_image,
     render_scail2_colored_mask_pair,
 )
+from .scail2.observability import (
+    elapsed_ms,
+    get_logger,
+    make_progress,
+    perf_counter_ms,
+    safe_value_summary,
+)
 from .scail2.sam3_preprocessing import require_sam3_predictors
+
+LOGGER = get_logger(__name__)
 
 
 class SCAIL2SAM3DependencyCheck:
@@ -75,6 +84,18 @@ class SCAILPose2ColoredMask:
         ref_track_data=None,
         ref_mask=None,
     ):
+        progress = make_progress(3)
+        started_ms = perf_counter_ms()
+        LOGGER.info(
+            "SCAIL-Pose2 Colored Mask start: driving=%s ref_track=%s ref_mask=%s",
+            safe_value_summary(driving_track_data.get("masks"))
+            if isinstance(driving_track_data, dict)
+            else safe_value_summary(driving_track_data),
+            safe_value_summary(ref_track_data.get("masks"))
+            if isinstance(ref_track_data, dict)
+            else safe_value_summary(ref_track_data),
+            safe_value_summary(ref_mask),
+        )
         result = render_scail2_colored_mask_pair(
             driving_track_data,
             ref_track_data=ref_track_data,
@@ -83,9 +104,21 @@ class SCAILPose2ColoredMask:
             sort_by=sort_by,
             replacement_mode=bool(replacement_mode),
         )
+        progress.update()
+        pose_mask = materialize_comfy_image(result.pose_video_mask)
+        progress.update()
+        reference_mask = materialize_comfy_image(result.reference_image_mask)
+        progress.update()
+        LOGGER.info(
+            "SCAIL-Pose2 Colored Mask done: pose=%s reference=%s objects=%s elapsed_ms=%.2f",
+            safe_value_summary(pose_mask),
+            safe_value_summary(reference_mask),
+            len(result.object_order),
+            elapsed_ms(started_ms),
+        )
         return (
-            materialize_comfy_image(result.pose_video_mask),
-            materialize_comfy_image(result.reference_image_mask),
+            pose_mask,
+            reference_mask,
         )
 
 

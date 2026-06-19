@@ -12,8 +12,10 @@ from scail2.colored_masks import (
     BLUE_RGB_FLOAT,
     RED_RGB_FLOAT,
     WHITE_RGB_FLOAT,
+    materialize_comfy_image,
     render_scail2_colored_mask_pair,
 )
+from scail2.observability import safe_value_summary
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +54,22 @@ def pixel(image, frame=0, row=0, col=0):
     return tuple(image[frame][row][col])
 
 
+class FakeTensorLike:
+    shape = (5, 8, 8, 3)
+    dtype = "float16"
+    device = "cuda:0"
+
+    def __init__(self):
+        self.to_kwargs = None
+
+    def detach(self):
+        return self
+
+    def to(self, **kwargs):
+        self.to_kwargs = kwargs
+        return self
+
+
 @contextmanager
 def fake_sam3_unpack_masks(unpacked_masks):
     module_names = (
@@ -86,6 +104,24 @@ def fake_sam3_unpack_masks(unpacked_masks):
 
 
 class Scail2ColoredMaskNodeTests(unittest.TestCase):
+    def test_materialize_preserves_tensor_like_image_without_list_roundtrip(self) -> None:
+        tensor = FakeTensorLike()
+
+        materialized = materialize_comfy_image(tensor)
+
+        self.assertIs(tensor, materialized)
+
+    def test_observability_summary_is_shape_only_and_value_safe(self) -> None:
+        tensor = FakeTensorLike()
+
+        summary = safe_value_summary(tensor)
+
+        self.assertEqual("FakeTensorLike", summary["type"])
+        self.assertEqual([5, 8, 8, 3], summary["shape"])
+        self.assertEqual("float16", summary["dtype"])
+        self.assertEqual("cuda:0", summary["device"])
+        self.assertNotIn("data", summary)
+
     def test_packed_masks_are_resized_to_orig_size_before_rendering(self) -> None:
         track = {
             "packed_masks": object(),

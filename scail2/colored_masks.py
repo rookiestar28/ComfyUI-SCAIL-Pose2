@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-
 BLACK_RGB_FLOAT = (0.0, 0.0, 0.0)
 WHITE_RGB_FLOAT = (1.0, 1.0, 1.0)
 BLUE_RGB_FLOAT = (0.0, 0.0, 1.0)
@@ -449,6 +448,12 @@ def render_scail2_colored_mask_pair(
 
 
 def materialize_comfy_image(image_frames: Any) -> Any:
+    if hasattr(image_frames, "detach") and hasattr(image_frames, "to"):
+        try:
+            import torch
+        except ModuleNotFoundError:
+            return image_frames
+        return image_frames.to(dtype=torch.float32)
     try:
         import torch
     except ModuleNotFoundError:
