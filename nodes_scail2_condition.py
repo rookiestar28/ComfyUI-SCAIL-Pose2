@@ -6,6 +6,15 @@ from collections.abc import Sequence
 from typing import Any
 
 from .scail2.preprocessing import build_user_mask_condition
+from .scail2.observability import (
+    elapsed_ms,
+    get_logger,
+    make_progress,
+    perf_counter_ms,
+    safe_value_summary,
+)
+
+LOGGER = get_logger(__name__)
 
 
 def _as_list(value: Any) -> Any:
@@ -30,7 +39,14 @@ def _looks_like_hwc_image(value: Any) -> bool:
     return _is_number(first_channel)
 
 
+def _is_tensor_like_image(value: Any) -> bool:
+    shape = getattr(value, "shape", None)
+    return shape is not None and hasattr(value, "detach") and len(tuple(shape)) in {3, 4}
+
+
 def _normalize_image_frames(value: Any, *, name: str) -> Sequence[Any]:
+    if _is_tensor_like_image(value):
+        return value
     raw = _as_list(value)
     if not raw:
         raise ValueError(f"{name} must not be empty")
@@ -121,10 +137,21 @@ class SCAILPose2SCAIL2Condition:
         additional_ref_image=None,
         additional_ref_mask=None,
     ):
+        progress = make_progress(3)
+        started_ms = perf_counter_ms()
+        LOGGER.info(
+            "SCAIL-Pose2 SCAIL-2 Condition start: pose=%s pose_mask=%s ref=%s ref_mask=%s",
+            safe_value_summary(pose_video),
+            safe_value_summary(pose_video_mask),
+            safe_value_summary(ref_image),
+            safe_value_summary(ref_mask),
+        )
+        progress.update()
         additional_images, additional_masks = _normalize_additional_inputs(
             additional_ref_image,
             additional_ref_mask,
         )
+        progress.update()
         condition = build_user_mask_condition(
             mode=mode,
             ref_image=ref_image,
@@ -140,6 +167,15 @@ class SCAILPose2SCAIL2Condition:
             additional_ref_images=additional_images,
             additional_ref_masks=additional_masks,
             source_kind="comfy_node:SCAILPose2SCAIL2Condition",
+        )
+        progress.update()
+        LOGGER.info(
+            "SCAIL-Pose2 SCAIL-2 Condition done: mode=%s frames=%s size=%sx%s elapsed_ms=%.2f",
+            condition.mode,
+            condition.num_frames,
+            condition.width,
+            condition.height,
+            elapsed_ms(started_ms),
         )
         return (condition,)
 

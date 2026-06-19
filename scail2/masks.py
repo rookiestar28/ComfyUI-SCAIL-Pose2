@@ -180,6 +180,60 @@ def semantic_mask_indices(
     return tuple(converted_frames)
 
 
+def _freeze_index_frames(index_frames: Any) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    return tuple(
+        tuple(tuple(int(item) for item in row) for row in frame)
+        for frame in index_frames
+    )
+
+
+def semantic_mask_indices_tensor(
+    frames: Any,
+    *,
+    strict: bool = True,
+) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    try:
+        import torch
+    except ModuleNotFoundError as exc:  # pragma: no cover - depends on local env
+        raise RuntimeError("torch is required for tensor semantic masks") from exc
+
+    tensor = frames.detach() if hasattr(frames, "detach") else torch.as_tensor(frames)
+    if tensor.ndim == 3:
+        tensor = tensor.unsqueeze(0)
+    if tensor.ndim != 4 or tensor.shape[-1] < 3:
+        raise ValueError("semantic mask tensor must have shape [frames, height, width, channels]")
+    if tensor.shape[0] <= 0 or tensor.shape[1] <= 0 or tensor.shape[2] <= 0:
+        raise ValueError("semantic mask tensor must be non-empty")
+
+    rgb = tensor[..., :3].to(dtype=torch.float32)
+    if bool(torch.logical_and(rgb >= 0.0, rgb <= 1.0).all().item()):
+        rgb = rgb * 255.0
+    if bool(torch.logical_or(rgb < 0.0, rgb > 255.0).any().item()):
+        raise ValueError("RGB semantic mask channels must be in the 0..255 range")
+
+    active = rgb >= MASK_ON_THRESHOLD
+    inactive = rgb <= MASK_OFF_THRESHOLD
+    if strict and bool((~(active | inactive)).any().item()):
+        raise ValueError(
+            "RGB semantic mask channel is ambiguous; use solid palette colors"
+        )
+    active = torch.where(active, active, torch.zeros_like(active, dtype=torch.bool))
+    r = active[..., 0]
+    g = active[..., 1]
+    b = active[..., 2]
+
+    indices = torch.full(r.shape, BACKGROUND_INDEX, dtype=torch.int16, device=r.device)
+    indices[r & g & b] = 0
+    indices[r & ~g & ~b] = 1
+    indices[~r & g & ~b] = 2
+    indices[~r & ~g & b] = 3
+    indices[r & g & ~b] = 4
+    indices[r & ~g & b] = 5
+    indices[~r & g & b] = 6
+
+    return _freeze_index_frames(indices.cpu().tolist())
+
+
 def mask_indices_shape(
     indices: Sequence[Sequence[Sequence[int]]],
 ) -> MaskIndexShape:

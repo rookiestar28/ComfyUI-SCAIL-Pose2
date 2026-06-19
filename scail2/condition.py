@@ -9,6 +9,7 @@ from .masks import (
     SEMANTIC_MASK_COLOR_NAMES,
     mask_indices_shape,
     semantic_mask_indices,
+    semantic_mask_indices_tensor,
 )
 from .wanvideo_contracts import UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES
 
@@ -61,6 +62,11 @@ def _normalize_mask_indices(
     *,
     mask_name: str,
 ) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    if hasattr(value, "shape") and hasattr(value, "detach"):
+        indices = semantic_mask_indices_tensor(value)
+        mask_indices_shape(indices)
+        return indices
+
     try:
         first_pixel = value[0][0][0]
     except (IndexError, TypeError) as exc:

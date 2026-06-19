@@ -25,6 +25,13 @@ def frames_from_colors(colors, *, height=1, width=1):
     return [solid_frame(color, height=height, width=width) for color in colors]
 
 
+class FakeTensorImage:
+    shape = (5, 8, 8, 3)
+
+    def detach(self):
+        return self
+
+
 def import_root_package():
     for name in list(sys.modules):
         if name == PACKAGE_NAME or name.startswith(f"{PACKAGE_NAME}."):
@@ -48,7 +55,19 @@ def condition_node():
     return package.NODE_CLASS_MAPPINGS["SCAILPose2SCAIL2Condition"]()
 
 
+def condition_node_module():
+    import_root_package()
+    return sys.modules[f"{PACKAGE_NAME}.nodes_scail2_condition"]
+
+
 class Scail2ConditionNodeTests(unittest.TestCase):
+    def test_normalize_image_frames_preserves_tensor_like_batch(self) -> None:
+        tensor = FakeTensorImage()
+        module = condition_node_module()
+
+        self.assertIs(tensor, module._normalize_image_frames(tensor, name="pose_video_mask"))
+
+
     def test_condition_builder_node_is_registered(self) -> None:
         package = import_root_package()
 

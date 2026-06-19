@@ -13,6 +13,7 @@ from scail2.masks import (
     pack_semantic_mask_indices_to_28_channels,
     pose_control_latent_spatial_size,
     semantic_mask_indices,
+    semantic_mask_indices_tensor,
 )
 
 
@@ -37,6 +38,28 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
             indices[0][0],
         )
         self.assertEqual(BACKGROUND_INDEX, classify_rgb_semantic_color(BLACK))
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_tensor_semantic_mask_classification_matches_palette_contract(self) -> None:
+        import torch
+
+        frames = torch.tensor(
+            [
+                [
+                    [
+                        (1.0, 1.0, 1.0),
+                        (1.0, 0.0, 0.0),
+                        (0.0, 1.0, 0.0),
+                        (0.0, 0.0, 0.0),
+                    ]
+                ]
+            ],
+            dtype=torch.float32,
+        )
+
+        indices = semantic_mask_indices_tensor(frames)
+
+        self.assertEqual((0, 1, 2, BACKGROUND_INDEX), indices[0][0])
 
     def test_strict_palette_rejects_ambiguous_non_semantic_colors(self) -> None:
         self.assertEqual(1, classify_rgb_semantic_color((225, 0, 0)))
