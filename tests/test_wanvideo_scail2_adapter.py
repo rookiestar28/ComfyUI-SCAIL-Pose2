@@ -105,8 +105,14 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
             payload["schema"]["native_wrapper"]["simultaneous_legacy_and_native"],
         )
         self.assertIs(condition, payload["condition"])
-        self.assertFalse(payload["target"]["live_wrapper_supported"])
-        self.assertEqual("v1_scail_embeds", payload["target"]["current_wrapper_path"])
+        self.assertTrue(payload["target"]["live_wrapper_supported"])
+        self.assertEqual("native_scail2_embeds", payload["target"]["current_wrapper_path"])
+        self.assertEqual("v1_scail_embeds", payload["target"]["fallback_wrapper_path"])
+        self.assertEqual(
+            "WanVideoAddSCAIL2ConditionEmbeds",
+            payload["target"]["native_consumer_node"],
+        )
+        self.assertEqual("scail2_embeds", payload["target"]["native_embeds_key"])
         self.assertTrue(payload["target"]["requires_wrapper_scail2_support"])
         self.assertEqual((1, 1, 28, 1, 1), payload["runtime_masks"]["reference"].shape)
         self.assertEqual((1, 2, 28, 1, 1), payload["runtime_masks"]["driving"].shape)
@@ -140,10 +146,8 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
             ),
         )
         self.assertEqual(1, condition.driving_mask_indices[0][0][0])
-        self.assertIn(
-            "mask_latents_28_channel",
-            payload["unsupported_current_wrapper_features"],
-        )
+        self.assertEqual((), payload["unsupported_current_wrapper_features"])
+        self.assertIn("mask_latents_28_channel", payload["legacy_v1_semantic_losses"])
         self.assertEqual((), payload["semantic_losses"])
 
     def test_schema_metadata_is_json_safe(self) -> None:
@@ -253,7 +257,7 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
         payload, summary = outputs[:2]
 
         self.assertEqual("wanvideo_scail2_condition_adapter", payload["kind"])
-        self.assertIn("live_wrapper_supported=False", summary)
+        self.assertIn("live_wrapper_supported=True", summary)
         self.assertIn("wan_scail_v1_outputs=unavailable", summary)
         self.assertEqual((None, None, None, None, None, None, None), outputs[2:])
         self.assertFalse(any(name.startswith("WanVideoWrapper") for name in sys.modules))
@@ -287,10 +291,8 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
         self.assertIs(condition.pose_video, pose_images)
         self.assertIs(condition.ref_image, clip_ref_image)
         self.assertEqual((8, 8, 5), (width, height, frames))
-        self.assertFalse(
-            payload["target"]["live_wrapper_supported"],
-            "v1 raw outputs do not make full SCAIL-2 wrapper support live",
-        )
+        self.assertTrue(payload["target"]["live_wrapper_supported"])
+        self.assertEqual("v1_scail_embeds", payload["target"]["fallback_wrapper_path"])
 
     def test_adapter_rejects_non_condition_payload(self) -> None:
         from scail2.wanvideo_scail2_adapter import (

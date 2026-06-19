@@ -17,6 +17,8 @@ NATIVE_WRAPPER_CONSUMER_NODE = "WanVideoAddSCAIL2ConditionEmbeds"
 NATIVE_WRAPPER_EMBEDS_KEY = "scail2_embeds"
 LEGACY_WRAPPER_EMBEDS_KEY = "scail_embeds"
 NATIVE_WRAPPER_OUTPUT_TYPE = "WANVIDIMAGE_EMBEDS"
+NATIVE_WRAPPER_PATH = "native_scail2_embeds"
+LEGACY_WRAPPER_PATH = "v1_scail_embeds"
 
 SCAIL2_TO_WANVIDEO_V1_SEMANTIC_LOSSES: tuple[str, ...] = (
     *UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES,
@@ -128,7 +130,7 @@ def _degraded_v1_summary(condition: SCAIL2Condition) -> dict[str, Any]:
     return {
         "kind": "wan_scail_v1_lossy_condition_summary",
         "full_scail2_parity": False,
-        "current_wrapper_path": "v1_scail_embeds",
+        "current_wrapper_path": LEGACY_WRAPPER_PATH,
         "width": condition.width,
         "height": condition.height,
         "num_frames": condition.num_frames,
@@ -180,9 +182,12 @@ def build_wanvideo_scail2_adapter_payload(
         "condition": scail2_condition,
         "target": {
             "wrapper_family": "ComfyUI-WanVideoWrapper",
-            "current_wrapper_path": "v1_scail_embeds",
+            "current_wrapper_path": NATIVE_WRAPPER_PATH,
+            "fallback_wrapper_path": LEGACY_WRAPPER_PATH,
+            "native_consumer_node": NATIVE_WRAPPER_CONSUMER_NODE,
+            "native_embeds_key": NATIVE_WRAPPER_EMBEDS_KEY,
             "requires_wrapper_scail2_support": True,
-            "live_wrapper_supported": False,
+            "live_wrapper_supported": True,
         },
         "mode": scail2_condition.mode,
         "replace_flag": scail2_condition.replace_flag,
@@ -207,9 +212,8 @@ def build_wanvideo_scail2_adapter_payload(
         },
         "runtime_masks": runtime_masks,
         "additional_references": scail2_condition.additional_references,
-        "unsupported_current_wrapper_features": (
-            scail2_condition.unsupported_wrapper_features
-        ),
+        "unsupported_current_wrapper_features": (),
+        "legacy_v1_semantic_losses": scail2_condition.unsupported_wrapper_features,
         "degraded": bool(degrade_to_v1),
         "semantic_losses": semantic_losses,
         "degraded_payload": degraded_payload,

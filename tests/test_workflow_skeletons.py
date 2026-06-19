@@ -88,8 +88,12 @@ class WorkflowSkeletonTests(unittest.TestCase):
             }.issubset(fields)
         )
         self.assertEqual(
-            "v1_scail_embeds",
+            "native_scail2_embeds",
             data["wanvideo_scail2_adapter"]["target"]["current_wrapper_path"],
+        )
+        self.assertEqual(
+            "v1_scail_embeds",
+            data["wanvideo_scail2_adapter"]["target"]["fallback_wrapper_path"],
         )
         schema = data["wanvideo_scail2_adapter"]["payload_schema"]
         self.assertEqual("scail_pose2.wanvideo_scail2_payload", schema["name"])
@@ -112,12 +116,12 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(28, schema["runtime_mask_layouts"]["channel_count"])
         self.assertEqual(4, schema["runtime_mask_layouts"]["temporal_stride"])
         self.assertEqual(8, schema["runtime_mask_layouts"]["spatial_downsample"])
-        self.assertFalse(
+        self.assertTrue(
             data["wanvideo_scail2_adapter"]["target"]["live_wrapper_supported"]
         )
         self.assertEqual(
             set(wanvideo_contracts.UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES),
-            set(data["unsupported_current_wan_scail_features"]),
+            set(data["legacy_v1_semantic_losses"]),
         )
         self.assertEqual(
             "SCAIL_WAN_SCAIL_IMAGES",
@@ -142,6 +146,51 @@ class WorkflowSkeletonTests(unittest.TestCase):
                 for key in ("ref_image", "pose_images", "width", "height", "num_frames")
             },
         )
+
+    def test_native_scail2_wrapper_skeleton_wires_expected_path(self) -> None:
+        data = load_skeleton("wanvideo_native_scail2.json")
+        class_types = {node.get("class_type") for node in data["nodes"]}
+        links = {(tuple(link["from"]), tuple(link["to"]), link["type"]) for link in data["links"]}
+
+        self.assertTrue(
+            {
+                "SCAILPose2ColoredMask",
+                "SCAILPose2SCAIL2Condition",
+                "SCAILPose2WanVideoSCAIL2Adapter",
+                "WanVideoAddSCAIL2ConditionEmbeds",
+                wanvideo_contracts.NODE_WAN_EMPTY_EMBEDS,
+                wanvideo_contracts.NODE_WAN_SAMPLER_V2,
+            }.issubset(class_types)
+        )
+        self.assertIn(
+            (
+                ("wanvideo_scail2_adapter", "condition"),
+                ("wan_scail2_condition_embeds", "condition"),
+                "SCAIL2_WANVIDEO_PAYLOAD",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("wan_scail2_condition_embeds", "image_embeds"),
+                ("wan_sampler", "image_embeds"),
+                "WANVIDIMAGE_EMBEDS",
+            ),
+            links,
+        )
+        self.assertEqual(
+            "scail2_embeds",
+            data["native_wrapper_contract"]["embeds_key"],
+        )
+        self.assertEqual(
+            "scail_embeds",
+            data["native_wrapper_contract"]["legacy_embeds_key"],
+        )
+        self.assertEqual(
+            "reject",
+            data["native_wrapper_contract"]["simultaneous_legacy_and_native"],
+        )
+        self.assertFalse(data["degradation"]["v1_fallback_is_full_scail2_parity"])
 
     def test_wananimate_fallback_skeleton_requires_explicit_degradation(self) -> None:
         data = load_skeleton("wananimate_fallback.json")

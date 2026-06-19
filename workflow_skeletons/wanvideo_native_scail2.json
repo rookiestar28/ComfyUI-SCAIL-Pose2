@@ -1,0 +1,114 @@
+{
+  "schema": "scail_pose2.workflow_skeleton.v1",
+  "title": "Native SCAIL-2 To WanVideoWrapper Skeleton",
+  "execution": "static_only",
+  "live_generation": "deferred",
+  "nodes": [
+    {
+      "id": "workflow_inputs",
+      "class_type": "ExternalWorkflowInputs",
+      "role": "user_supplied_images_tracks_models_and_prompts"
+    },
+    {
+      "id": "colored_masks",
+      "class_type": "SCAILPose2ColoredMask",
+      "role": "sam3_track_colored_mask_creation",
+      "outputs": [
+        { "name": "pose_video_mask", "type": "IMAGE" },
+        { "name": "reference_image_mask", "type": "IMAGE" }
+      ]
+    },
+    {
+      "id": "scail2_condition",
+      "class_type": "SCAILPose2SCAIL2Condition",
+      "role": "validated_scail2_condition_builder",
+      "output_type": "SCAIL2_CONDITION",
+      "input_order": ["pose_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"]
+    },
+    {
+      "id": "wanvideo_scail2_adapter",
+      "class_type": "SCAILPose2WanVideoSCAIL2Adapter",
+      "role": "wanvideo_wrapper_scail2_payload_contract",
+      "output_type": "SCAIL2_WANVIDEO_PAYLOAD",
+      "output_name": "condition",
+      "degrade_to_v1_default": false,
+      "allow_degradation_default": false
+    },
+    {
+      "id": "wan_empty_embeds",
+      "class_type": "WanVideoEmptyEmbeds",
+      "role": "wrapper_base_embeds",
+      "output_type": "WANVIDIMAGE_EMBEDS"
+    },
+    {
+      "id": "wan_scail2_condition_embeds",
+      "class_type": "WanVideoAddSCAIL2ConditionEmbeds",
+      "role": "wrapper_native_scail2_embeds",
+      "input_type": "SCAIL2_WANVIDEO_PAYLOAD",
+      "output_type": "WANVIDIMAGE_EMBEDS",
+      "embeds_key": "scail2_embeds"
+    },
+    {
+      "id": "wan_sampler",
+      "class_type": "WanVideoSamplerv2",
+      "role": "wrapper_sampler",
+      "input_type": "WANVIDIMAGE_EMBEDS"
+    }
+  ],
+  "links": [
+    {
+      "from": ["workflow_inputs", "images"],
+      "to": ["colored_masks", "driving_track_data"],
+      "type": "TRACK_DATA"
+    },
+    {
+      "from": ["colored_masks", "pose_video_mask"],
+      "to": ["scail2_condition", "pose_video_mask"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["colored_masks", "reference_image_mask"],
+      "to": ["scail2_condition", "ref_mask"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["scail2_condition", "condition"],
+      "to": ["wanvideo_scail2_adapter", "condition"],
+      "type": "SCAIL2_CONDITION"
+    },
+    {
+      "from": ["wanvideo_scail2_adapter", "condition"],
+      "to": ["wan_scail2_condition_embeds", "condition"],
+      "type": "SCAIL2_WANVIDEO_PAYLOAD"
+    },
+    {
+      "from": ["wan_empty_embeds", "image_embeds"],
+      "to": ["wan_scail2_condition_embeds", "embeds"],
+      "type": "WANVIDIMAGE_EMBEDS"
+    },
+    {
+      "from": ["wan_scail2_condition_embeds", "image_embeds"],
+      "to": ["wan_sampler", "image_embeds"],
+      "type": "WANVIDIMAGE_EMBEDS"
+    }
+  ],
+  "native_wrapper_contract": {
+    "consumer_node": "WanVideoAddSCAIL2ConditionEmbeds",
+    "consumer_input": "condition",
+    "consumer_input_type": "SCAIL2_WANVIDEO_PAYLOAD",
+    "output_type": "WANVIDIMAGE_EMBEDS",
+    "embeds_key": "scail2_embeds",
+    "legacy_embeds_key": "scail_embeds",
+    "simultaneous_legacy_and_native": "reject"
+  },
+  "degradation": {
+    "v1_fallback_available": true,
+    "v1_fallback_is_full_scail2_parity": false,
+    "requires_explicit_enable": true
+  },
+  "warnings": [
+    "This static skeleton documents native SCAIL-2 wiring and does not execute generation.",
+    "Live inference still requires a compatible WanVideoWrapper build, Wan model assets, VAE, text embeds, scheduler, and user runtime configuration.",
+    "Use the v1 fallback only when accepting documented semantic losses."
+  ]
+}

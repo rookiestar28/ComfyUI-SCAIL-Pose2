@@ -83,9 +83,12 @@
     },
     "target": {
       "wrapper_family": "ComfyUI-WanVideoWrapper",
-      "current_wrapper_path": "v1_scail_embeds",
+      "current_wrapper_path": "native_scail2_embeds",
+      "fallback_wrapper_path": "v1_scail_embeds",
+      "native_consumer_node": "WanVideoAddSCAIL2ConditionEmbeds",
+      "native_embeds_key": "scail2_embeds",
       "requires_wrapper_scail2_support": true,
-      "live_wrapper_supported": false
+      "live_wrapper_supported": true
     },
     "degradation": {
       "is_full_scail2_parity": false,
@@ -101,7 +104,7 @@
       }
     }
   },
-  "unsupported_current_wan_scail_features": [
+  "legacy_v1_semantic_losses": [
     "rgb_semantic_reference_masks",
     "rgb_semantic_driving_masks",
     "mask_latents_28_channel",
@@ -112,8 +115,8 @@
   ],
   "warnings": [
     "SCAIL2_CONDITION is a preprocessing contract, not a generation node.",
-    "SCAIL2_WANVIDEO_PAYLOAD preserves SCAIL-2 semantics but is not live wrapper-side full SCAIL-2 parity.",
-    "Current WanVideoWrapper SCAIL nodes consume v1-style reference and pose image conditioning.",
+    "SCAIL2_WANVIDEO_PAYLOAD is consumed by WanVideoAddSCAIL2ConditionEmbeds in native SCAIL-2 wrapper workflows.",
+    "Legacy WanVideoWrapper v1 SCAIL nodes consume v1-style reference and pose image conditioning only.",
     "Set degrade_to_v1 and allow_degradation only when accepting the documented semantic losses."
   ]
 }

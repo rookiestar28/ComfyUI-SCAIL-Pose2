@@ -62,6 +62,7 @@ class ReleaseCloseoutTests(unittest.TestCase):
             ".github/workflows/publish.yml",
             "workflow_skeletons/wan_scail_v1_pose_control.json",
             "workflow_skeletons/scail2_condition_builder.json",
+            "workflow_skeletons/wanvideo_native_scail2.json",
             "workflow_skeletons/wananimate_fallback.json",
         ]
 
@@ -103,7 +104,8 @@ class ReleaseCloseoutTests(unittest.TestCase):
 
         self.assertIn("SCAIL-2 adapter payload", readme)
         self.assertNotIn("SCAILPose2WanSCAILImages", readme)
-        self.assertIn("not live wrapper-side full SCAIL-2 parity", readme)
+        self.assertIn("WanVideoAddSCAIL2ConditionEmbeds", readme)
+        self.assertIn("lossy v1 fallback", readme)
         self.assertNotIn("reference/docs", readme)
         self.assertNotIn(".planning", readme)
 

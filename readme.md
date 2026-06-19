@@ -44,8 +44,9 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 
 ### SCAIL-Pose2 / WanVideoWrapper
 
-- `SCAILPose2WanVideoSCAIL2Adapter`: converts a validated `SCAIL2_CONDITION` into a versioned SCAIL-2 adapter payload. The first output is named `condition` in the UI, but its ComfyUI type is `SCAIL2_WANVIDEO_PAYLOAD`; it is an adapter condition payload, not the original `SCAIL2_CONDITION` object. The payload preserves SCAIL-2 semantic mask metadata and explicitly marks current WanVideoWrapper gaps; it is not live wrapper-side full SCAIL-2 parity.
-- When `degrade_to_v1` and `allow_degradation` are both enabled, `SCAILPose2WanVideoSCAIL2Adapter` also exposes current WanVideoWrapper v1-compatible outputs: `ref_image`, `pose_images`, `clip_ref_image`, `width`, `height`, and `num_frames`. These can be wired to the current WanVideoWrapper v1 SCAIL image path when users accept the documented semantic losses.
+- `SCAILPose2WanVideoSCAIL2Adapter`: converts a validated `SCAIL2_CONDITION` into a versioned SCAIL-2 adapter payload. The first output is named `condition` in the UI, but its ComfyUI type is `SCAIL2_WANVIDEO_PAYLOAD`; it is an adapter condition payload, not the original `SCAIL2_CONDITION` object.
+- Native WanVideoWrapper wiring uses `WanVideoAddSCAIL2ConditionEmbeds`: connect this adapter node's `condition` output to that wrapper node's `condition` input, then connect the wrapper node's `image_embeds` output to `WanVideo Sampler v2.image_embeds`. The wrapper native path stores SCAIL-2 data under `scail2_embeds` and rejects simultaneous legacy `scail_embeds`.
+- When `degrade_to_v1` and `allow_degradation` are both enabled, `SCAILPose2WanVideoSCAIL2Adapter` also exposes a lossy v1 fallback: `ref_image`, `pose_images`, `clip_ref_image`, `width`, `height`, and `num_frames`. These can be wired to WanVideoWrapper v1 SCAIL image nodes only when users accept the documented semantic losses.
 - The older standalone v1 image adapter public node is no longer registered. Its validation behavior is now used internally by the SCAIL-2 adapter fallback path.
 
 ### SCAIL-Pose2 / SAM3
