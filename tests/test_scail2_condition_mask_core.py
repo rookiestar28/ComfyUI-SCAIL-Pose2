@@ -9,7 +9,9 @@ from scail2.masks import (
     BACKGROUND_INDEX,
     SEMANTIC_MASK_COLORS,
     classify_rgb_semantic_color,
+    latent_spatial_size_for_pixels,
     pack_semantic_mask_indices_to_28_channels,
+    pose_control_latent_spatial_size,
     semantic_mask_indices,
 )
 
@@ -172,6 +174,26 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
                     1.0,
                     odd_runtime.value(latent_frame=0, channel=2, row=row, col=col),
                 )
+
+    def test_latent_shape_contract_separates_full_and_pose_control_layouts(
+        self,
+    ) -> None:
+        self.assertEqual(
+            (96, 140),
+            latent_spatial_size_for_pixels(height=768, width=1120),
+        )
+        self.assertEqual(
+            (48, 70),
+            pose_control_latent_spatial_size(height=768, width=1120),
+        )
+        self.assertEqual(
+            (2, 2),
+            latent_spatial_size_for_pixels(height=16, width=16),
+        )
+        self.assertEqual(
+            (1, 1),
+            pose_control_latent_spatial_size(height=16, width=16),
+        )
 
     def test_condition_builder_accepts_animation_and_replacement_modes(self) -> None:
         ref_mask = frames_from_colors([(255, 255, 255)])

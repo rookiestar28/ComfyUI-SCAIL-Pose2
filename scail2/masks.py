@@ -224,13 +224,47 @@ def _freeze_latent_data(data: list[list[list[list[int]]]]) -> tuple[Any, ...]:
     )
 
 
+def _positive_size(name: str, value: int) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise ValueError(f"{name} must be positive")
+    return parsed
+
+
 def _latent_spatial_size(size: int, spatial_downsample: int) -> int:
     if spatial_downsample != 8:
         raise ValueError("SCAIL-2 runtime mask packing uses spatial downsample 8")
-    latent_size = size
+    latent_size = _positive_size("size", size)
     for _ in range(3):
         latent_size = (latent_size + 1) // 2
     return latent_size
+
+
+def latent_spatial_size_for_pixels(
+    *,
+    height: int,
+    width: int,
+    spatial_downsample: int = 8,
+) -> tuple[int, int]:
+    return (
+        _latent_spatial_size(height, spatial_downsample),
+        _latent_spatial_size(width, spatial_downsample),
+    )
+
+
+def pose_control_latent_spatial_size(
+    *,
+    height: int,
+    width: int,
+    spatial_downsample: int = 8,
+) -> tuple[int, int]:
+    control_height = max(_positive_size("height", height) // 2, 1)
+    control_width = max(_positive_size("width", width) // 2, 1)
+    return latent_spatial_size_for_pixels(
+        height=control_height,
+        width=control_width,
+        spatial_downsample=spatial_downsample,
+    )
 
 
 def _downsample_color_plane(
