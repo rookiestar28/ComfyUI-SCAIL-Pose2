@@ -58,6 +58,29 @@
   "wanvideo_scail2_adapter": {
     "payload_kind": "wanvideo_scail2_condition_adapter",
     "payload_version": 1,
+    "payload_schema": {
+      "name": "scail_pose2.wanvideo_scail2_payload",
+      "version": 1,
+      "native_wrapper_consumer": {
+        "class_type": "WanVideoAddSCAIL2ConditionEmbeds",
+        "input_type": "SCAIL2_WANVIDEO_PAYLOAD",
+        "output_type": "WANVIDIMAGE_EMBEDS",
+        "embeds_key": "scail2_embeds",
+        "legacy_embeds_key": "scail_embeds",
+        "simultaneous_legacy_and_native": "reject"
+      },
+      "runtime_mask_layouts": {
+        "comfy_axes": ["batch", "latent_frame", "channel", "height", "width"],
+        "scail2_axes": ["channel", "latent_frame", "height", "width"],
+        "channel_count": 28,
+        "temporal_stride": 4,
+        "spatial_downsample": 8
+      },
+      "additional_references": {
+        "requires_paired_image_and_mask": true,
+        "mask_frame_count": 1
+      }
+    },
     "target": {
       "wrapper_family": "ComfyUI-WanVideoWrapper",
       "current_wrapper_path": "v1_scail_embeds",

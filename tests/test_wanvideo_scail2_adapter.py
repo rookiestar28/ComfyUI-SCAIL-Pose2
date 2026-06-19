@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from dataclasses import dataclass
@@ -82,19 +83,80 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
 
         self.assertEqual("wanvideo_scail2_condition_adapter", payload["kind"])
         self.assertEqual(1, payload["version"])
+        self.assertEqual(
+            "scail_pose2.wanvideo_scail2_payload",
+            payload["schema"]["name"],
+        )
+        self.assertEqual(1, payload["schema"]["version"])
+        self.assertEqual(
+            "SCAIL2_CONDITION",
+            payload["schema"]["condition"]["type_name"],
+        )
+        self.assertEqual(
+            "WanVideoAddSCAIL2ConditionEmbeds",
+            payload["schema"]["native_wrapper"]["consumer_node"],
+        )
+        self.assertEqual(
+            "scail2_embeds",
+            payload["schema"]["native_wrapper"]["embeds_key"],
+        )
+        self.assertEqual(
+            "reject",
+            payload["schema"]["native_wrapper"]["simultaneous_legacy_and_native"],
+        )
         self.assertIs(condition, payload["condition"])
         self.assertFalse(payload["target"]["live_wrapper_supported"])
         self.assertEqual("v1_scail_embeds", payload["target"]["current_wrapper_path"])
         self.assertTrue(payload["target"]["requires_wrapper_scail2_support"])
         self.assertEqual((1, 1, 28, 1, 1), payload["runtime_masks"]["reference"].shape)
         self.assertEqual((1, 2, 28, 1, 1), payload["runtime_masks"]["driving"].shape)
+        self.assertEqual(
+            [1, 1, 28, 1, 1],
+            payload["schema"]["runtime_mask_layouts"]["reference"]["comfy_layout"][
+                "shape"
+            ],
+        )
+        self.assertEqual(
+            [28, 2, 1, 1],
+            payload["schema"]["runtime_mask_layouts"]["driving"]["scail2_layout"][
+                "shape"
+            ],
+        )
+        self.assertEqual(
+            ["white", "red", "green", "blue", "yellow", "magenta", "cyan"],
+            payload["schema"]["mask_packing"]["color_order"],
+        )
         self.assertEqual(1, len(payload["runtime_masks"]["additional_references"]))
+        self.assertEqual(
+            1,
+            payload["schema"]["additional_references"]["count"],
+        )
+        self.assertEqual(
+            1,
+            len(
+                payload["schema"]["runtime_mask_layouts"][
+                    "additional_references"
+                ]
+            ),
+        )
         self.assertEqual(1, condition.driving_mask_indices[0][0][0])
         self.assertIn(
             "mask_latents_28_channel",
             payload["unsupported_current_wrapper_features"],
         )
         self.assertEqual((), payload["semantic_losses"])
+
+    def test_schema_metadata_is_json_safe(self) -> None:
+        from scail2.wanvideo_scail2_adapter import (
+            build_wanvideo_scail2_adapter_payload,
+        )
+
+        payload = build_wanvideo_scail2_adapter_payload(build_condition())
+
+        encoded = json.dumps(payload["schema"], sort_keys=True)
+
+        self.assertIn("WanVideoAddSCAIL2ConditionEmbeds", encoded)
+        self.assertIn("RuntimeMaskLatent28", encoded)
 
     def test_lossy_v1_degradation_is_refused_by_default(self) -> None:
         from scail2.wanvideo_scail2_adapter import (
@@ -127,6 +189,11 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
         self.assertEqual(
             "wan_scail_v1_lossy_condition_summary",
             payload["degraded_payload"]["kind"],
+        )
+        self.assertFalse(payload["schema"]["degradation"]["v1_full_scail2_parity"])
+        self.assertEqual(
+            list(SCAIL2_TO_WANVIDEO_V1_SEMANTIC_LOSSES),
+            payload["schema"]["degradation"]["v1_semantic_losses"],
         )
         self.assertFalse(payload["degraded_payload"]["full_scail2_parity"])
         self.assertEqual(

@@ -91,6 +91,27 @@ class WorkflowSkeletonTests(unittest.TestCase):
             "v1_scail_embeds",
             data["wanvideo_scail2_adapter"]["target"]["current_wrapper_path"],
         )
+        schema = data["wanvideo_scail2_adapter"]["payload_schema"]
+        self.assertEqual("scail_pose2.wanvideo_scail2_payload", schema["name"])
+        self.assertEqual(
+            "WanVideoAddSCAIL2ConditionEmbeds",
+            schema["native_wrapper_consumer"]["class_type"],
+        )
+        self.assertEqual(
+            "WANVIDIMAGE_EMBEDS",
+            schema["native_wrapper_consumer"]["output_type"],
+        )
+        self.assertEqual(
+            "scail2_embeds",
+            schema["native_wrapper_consumer"]["embeds_key"],
+        )
+        self.assertEqual(
+            "reject",
+            schema["native_wrapper_consumer"]["simultaneous_legacy_and_native"],
+        )
+        self.assertEqual(28, schema["runtime_mask_layouts"]["channel_count"])
+        self.assertEqual(4, schema["runtime_mask_layouts"]["temporal_stride"])
+        self.assertEqual(8, schema["runtime_mask_layouts"]["spatial_downsample"])
         self.assertFalse(
             data["wanvideo_scail2_adapter"]["target"]["live_wrapper_supported"]
         )
