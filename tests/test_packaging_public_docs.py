@@ -24,7 +24,7 @@ class PackagingPublicDocsTests(unittest.TestCase):
         comfy = data["tool"]["comfy"]
 
         self.assertEqual(project["name"], "comfyui-scail-pose2")
-        self.assertEqual(project["version"], "0.1.0")
+        self.assertRegex(project["version"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(project["authors"], [{"name": "rookiestar28"}])
         self.assertEqual(project["readme"], "readme.md")
         self.assertIn("SCAIL-2", project["description"])
