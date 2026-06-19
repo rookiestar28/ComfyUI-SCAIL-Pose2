@@ -119,11 +119,33 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
+            "reference",
+            payload["schema"]["runtime_mask_layouts"]["reference"]["layout_role"],
+        )
+        self.assertEqual(
+            "driving",
+            payload["schema"]["runtime_mask_layouts"]["driving"]["layout_role"],
+        )
+        self.assertEqual(
             [28, 2, 1, 1],
             payload["schema"]["runtime_mask_layouts"]["driving"]["scail2_layout"][
                 "shape"
             ],
         )
+        self.assertTrue(
+            payload["schema"]["mask_data_flow"]["native_runtime_masks_authoritative"]
+        )
+        self.assertFalse(
+            payload["schema"]["mask_data_flow"][
+                "full_resolution_indices_in_native_payload"
+            ]
+        )
+        self.assertEqual(
+            "omitted_from_native_payload",
+            payload["rgb_masks"]["indices"],
+        )
+        self.assertNotIn("reference_indices", payload["rgb_masks"])
+        self.assertNotIn("driving_indices", payload["rgb_masks"])
         self.assertEqual(
             ["white", "red", "green", "blue", "yellow", "magenta", "cyan"],
             payload["schema"]["mask_packing"]["color_order"],

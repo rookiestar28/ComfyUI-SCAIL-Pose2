@@ -36,15 +36,20 @@ def _require_scail2_condition(condition: Any) -> SCAIL2Condition:
 
 def _runtime_masks_for_condition(condition: SCAIL2Condition) -> dict[str, Any]:
     additional = tuple(
-        pack_semantic_mask_indices_to_runtime_28_channels(item.mask_indices)
+        pack_semantic_mask_indices_to_runtime_28_channels(
+            item.mask_indices,
+            layout_role="additional_reference",
+        )
         for item in condition.additional_references
     )
     return {
         "reference": pack_semantic_mask_indices_to_runtime_28_channels(
-            condition.ref_mask_indices
+            condition.ref_mask_indices,
+            layout_role="reference",
         ),
         "driving": pack_semantic_mask_indices_to_runtime_28_channels(
-            condition.driving_mask_indices
+            condition.driving_mask_indices,
+            layout_role="driving",
         ),
         "additional_references": additional,
     }
@@ -53,6 +58,7 @@ def _runtime_masks_for_condition(condition: SCAIL2Condition) -> dict[str, Any]:
 def _runtime_mask_layout(mask: Any) -> dict[str, Any]:
     return {
         "object_type": "RuntimeMaskLatent28",
+        "layout_role": mask.layout_role,
         "comfy_layout": {
             "axes": ["batch", "latent_frame", "channel", "height", "width"],
             "shape": list(mask.comfy_shape),
@@ -105,6 +111,11 @@ def _payload_schema(
             "spatial_downsample": 8,
             "color_order": list(condition.mask_palette),
             "requires_4n_plus_1_frames": True,
+        },
+        "mask_data_flow": {
+            "native_runtime_masks_authoritative": True,
+            "full_resolution_indices_in_native_payload": False,
+            "raw_indices_available_on_condition_object": True,
         },
         "runtime_mask_layouts": {
             "reference": _runtime_mask_layout(runtime_masks["reference"]),
@@ -198,8 +209,8 @@ def build_wanvideo_scail2_adapter_payload(
             "source_kind": scail2_condition.source_kind,
         },
         "rgb_masks": {
-            "reference_indices": scail2_condition.ref_mask_indices,
-            "driving_indices": scail2_condition.driving_mask_indices,
+            "indices": "omitted_from_native_payload",
+            "native_runtime_masks_authoritative": True,
             "palette": scail2_condition.mask_palette,
         },
         "runtime_masks": runtime_masks,

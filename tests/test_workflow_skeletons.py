@@ -118,6 +118,16 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(28, schema["runtime_mask_layouts"]["channel_count"])
         self.assertEqual(4, schema["runtime_mask_layouts"]["temporal_stride"])
         self.assertEqual(8, schema["runtime_mask_layouts"]["spatial_downsample"])
+        self.assertEqual(
+            ["reference", "driving", "additional_reference"],
+            schema["runtime_mask_layouts"]["layout_roles"],
+        )
+        self.assertTrue(
+            schema["mask_data_flow"]["native_runtime_masks_authoritative"]
+        )
+        self.assertFalse(
+            schema["mask_data_flow"]["full_resolution_indices_in_native_payload"]
+        )
         self.assertTrue(
             data["wanvideo_scail2_adapter"]["target"]["live_wrapper_supported"]
         )

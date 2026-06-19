@@ -80,6 +80,7 @@ class RuntimeMaskLatent28:
     temporal_stride: int = TEMPORAL_COMPRESSION_STRIDE
     spatial_downsample: int = 8
     color_order: tuple[str, ...] = SEMANTIC_MASK_COLOR_NAMES
+    layout_role: str = "runtime_mask"
 
     @property
     def comfy_shape(self) -> tuple[int, int, int, int, int]:
@@ -449,6 +450,9 @@ def pack_semantic_mask_indices_to_runtime_28_channels(
     temporal_stride: int = TEMPORAL_COMPRESSION_STRIDE,
     spatial_downsample: int = 8,
     require_vae_alignment: bool = True,
+    target_latent_height: int | None = None,
+    target_latent_width: int | None = None,
+    layout_role: str = "runtime_mask",
 ) -> RuntimeMaskLatent28:
     if temporal_stride != TEMPORAL_COMPRESSION_STRIDE:
         raise ValueError("SCAIL-2 mask packing uses temporal stride 4")
@@ -456,8 +460,17 @@ def pack_semantic_mask_indices_to_runtime_28_channels(
     if require_vae_alignment and (shape.frames - 1) % temporal_stride != 0:
         raise ValueError("SCAIL-2 mask frame count must be 4n+1 for strict packing")
 
-    latent_height = _latent_spatial_size(shape.height, spatial_downsample)
-    latent_width = _latent_spatial_size(shape.width, spatial_downsample)
+    latent_height = (
+        _positive_size("target_latent_height", target_latent_height)
+        if target_latent_height is not None
+        else _latent_spatial_size(shape.height, spatial_downsample)
+    )
+    latent_width = (
+        _positive_size("target_latent_width", target_latent_width)
+        if target_latent_width is not None
+        else _latent_spatial_size(shape.width, spatial_downsample)
+    )
+    role = str(layout_role).strip() or "runtime_mask"
     latent_frame_count = (shape.frames - 1) // temporal_stride + 1
 
     downsampled_frames = [
@@ -497,6 +510,7 @@ def pack_semantic_mask_indices_to_runtime_28_channels(
         latent_width=latent_width,
         temporal_stride=temporal_stride,
         spatial_downsample=spatial_downsample,
+        layout_role=role,
     )
 
 

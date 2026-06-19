@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+from .scail2.observability import (
+    elapsed_ms,
+    get_logger,
+    make_progress,
+    perf_counter_ms,
+    safe_value_summary,
+)
 from .scail2.wanvideo_scail2_adapter import (
     build_wanvideo_scail2_adapter_payload,
     summarize_wanvideo_scail2_payload,
 )
+
+LOGGER = get_logger(__name__)
 
 
 class SCAILPose2WanVideoSCAIL2Adapter:
@@ -51,16 +60,33 @@ class SCAILPose2WanVideoSCAIL2Adapter:
         degrade_to_v1=False,
         allow_degradation=False,
     ):
+        progress = make_progress(2)
+        started_ms = perf_counter_ms()
+        LOGGER.info(
+            "SCAIL-Pose2 WanVideo SCAIL-2 Adapter start: condition=%s degrade_to_v1=%s allow_degradation=%s",
+            safe_value_summary(condition),
+            bool(degrade_to_v1),
+            bool(allow_degradation),
+        )
         payload = build_wanvideo_scail2_adapter_payload(
             condition,
             degrade_to_v1=bool(degrade_to_v1),
             allow_degradation=bool(allow_degradation),
         )
+        progress.update()
+        summary = summarize_wanvideo_scail2_payload(payload)
+        LOGGER.info(
+            "SCAIL-Pose2 WanVideo SCAIL-2 Adapter done: summary=%s runtime_masks=%s elapsed_ms=%.2f",
+            summary,
+            sorted(payload.get("runtime_masks", {}).keys()),
+            elapsed_ms(started_ms),
+        )
+        progress.update()
         wan_scail_images = payload.get("wan_scail_v1_images")
         if wan_scail_images is None:
             return (
                 payload,
-                summarize_wanvideo_scail2_payload(payload),
+                summary,
                 None,
                 None,
                 None,
@@ -71,7 +97,7 @@ class SCAILPose2WanVideoSCAIL2Adapter:
             )
         return (
             payload,
-            summarize_wanvideo_scail2_payload(payload),
+            summary,
             wan_scail_images,
             wan_scail_images["ref_image"],
             wan_scail_images["pose_images"],
