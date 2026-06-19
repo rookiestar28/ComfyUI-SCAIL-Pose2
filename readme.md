@@ -58,6 +58,12 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 
 - `SCAILPose2SCAIL2Condition`: builds a validated `SCAIL2_CONDITION` payload from `pose_video`, `pose_video_mask`, `ref_image`, `ref_mask`, optional `additional_ref_image` / `additional_ref_mask`, mode, dimensions, and `num_frames`. Supported modes are `animation` and `replacement`; pose-rendered driving videos are animation-mode inputs. Long-video context length and overlap should be controlled by WanVideoWrapper context options downstream.
 
+## Native SCAIL-2 Workflow Notes
+
+For native WanVideoWrapper SCAIL-2 workflows, connect `SCAILPose2WanVideoSCAIL2Adapter.condition` to `WanVideoAddSCAIL2ConditionEmbeds.condition`, then send that node's `image_embeds` output to `WanVideo Sampler v2.image_embeds`. Use `WanVideo Context Options` for long-video `context_frames`, stride, and overlap by connecting its `context_options` output to `WanVideo Sampler v2.context_options`.
+
+The SCAIL-Pose2 Condition node does not expose SCAIL-2 segment or continuation controls. Wrapper context windows are supported by the wrapper-native SCAIL-2 path, but official SCAIL-2 clean-history continuation is not claimed by this package.
+
 ## License
 
 MIT License

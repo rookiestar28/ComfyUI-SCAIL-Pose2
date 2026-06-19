@@ -49,6 +49,14 @@
       "embeds_key": "scail2_embeds"
     },
     {
+      "id": "wan_context_options",
+      "class_type": "WanVideoContextOptions",
+      "role": "wrapper_context_window_owner",
+      "output_type": "WANVIDCONTEXT",
+      "optional": true,
+      "owns": ["context_frames", "context_stride", "context_overlap"]
+    },
+    {
       "id": "wan_sampler",
       "class_type": "WanVideoSamplerv2",
       "role": "wrapper_sampler",
@@ -90,8 +98,22 @@
       "from": ["wan_scail2_condition_embeds", "image_embeds"],
       "to": ["wan_sampler", "image_embeds"],
       "type": "WANVIDIMAGE_EMBEDS"
+    },
+    {
+      "from": ["wan_context_options", "context_options"],
+      "to": ["wan_sampler", "context_options"],
+      "type": "WANVIDCONTEXT",
+      "optional": true
     }
   ],
+  "context": {
+    "owner": "ComfyUI-WanVideoWrapper",
+    "owner_node": "WanVideoContextOptions",
+    "sampler_socket": "context_options",
+    "controls": ["context_frames", "context_stride", "context_overlap"],
+    "scail2_condition_segment_controls": false,
+    "official_scail2_clean_history_claimed": false
+  },
   "native_wrapper_contract": {
     "consumer_node": "WanVideoAddSCAIL2ConditionEmbeds",
     "consumer_input": "condition",

@@ -160,6 +160,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
                 "SCAILPose2SCAIL2Condition",
                 "SCAILPose2WanVideoSCAIL2Adapter",
                 "WanVideoAddSCAIL2ConditionEmbeds",
+                "WanVideoContextOptions",
                 wanvideo_contracts.NODE_WAN_EMPTY_EMBEDS,
                 wanvideo_contracts.NODE_WAN_SAMPLER_V2,
             }.issubset(class_types)
@@ -180,6 +181,24 @@ class WorkflowSkeletonTests(unittest.TestCase):
             ),
             links,
         )
+        self.assertIn(
+            (
+                ("wan_context_options", "context_options"),
+                ("wan_sampler", "context_options"),
+                "WANVIDCONTEXT",
+            ),
+            links,
+        )
+        context = data["context"]
+        self.assertEqual("ComfyUI-WanVideoWrapper", context["owner"])
+        self.assertEqual("WanVideoContextOptions", context["owner_node"])
+        self.assertEqual("context_options", context["sampler_socket"])
+        self.assertEqual(
+            ["context_frames", "context_stride", "context_overlap"],
+            context["controls"],
+        )
+        self.assertFalse(context["scail2_condition_segment_controls"])
+        self.assertFalse(context["official_scail2_clean_history_claimed"])
         self.assertEqual(
             "scail2_embeds",
             data["native_wrapper_contract"]["embeds_key"],

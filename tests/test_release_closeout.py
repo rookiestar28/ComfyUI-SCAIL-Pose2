@@ -105,6 +105,8 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertIn("SCAIL-2 adapter payload", readme)
         self.assertNotIn("SCAILPose2WanSCAILImages", readme)
         self.assertIn("WanVideoAddSCAIL2ConditionEmbeds", readme)
+        self.assertIn("WanVideo Context Options", readme)
+        self.assertIn("clean-history continuation is not claimed", readme)
         self.assertIn("lossy v1 fallback", readme)
         self.assertNotIn("reference/docs", readme)
         self.assertNotIn(".planning", readme)
