@@ -66,6 +66,10 @@ For native WanVideoWrapper SCAIL-2 workflows, connect `SCAILPose2WanVideoSCAIL2A
 
 When using SAM3 masks, connect `SCAILPose2ColoredMask.pose_video_mask` to `SCAILPose2SCAIL2Condition.pose_video_mask`. If you do not provide a separate reference mask, connect `SCAILPose2ColoredMask.reference_image_mask` to `SCAILPose2SCAIL2Condition.ref_mask` so the Condition payload still receives the reference-mask signal expected by SCAIL-2 conditioning.
 
+Keep `SCAILPose2SCAIL2Condition.width` and `height` at the final generation size. Do not halve them to match pose latents. The WanVideo adapter packs reference masks at full latent size and packs driving masks at pose-control latent size so wrapper pose latents and driving masks share temporal/spatial shape.
+
+The Colored Mask, Condition, and WanVideo adapter nodes emit safe progress/log summaries for long work. These summaries report metadata such as shape, dtype, device, frame count, object count, and elapsed time; they do not log raw mask pixels, prompts, model paths, or media contents.
+
 The SCAIL-Pose2 Condition node does not expose SCAIL-2 segment or continuation controls. Wrapper context windows are supported by the wrapper-native SCAIL-2 path, but official SCAIL-2 clean-history continuation is not claimed by this package.
 
 ## License
