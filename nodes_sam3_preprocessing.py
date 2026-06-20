@@ -44,7 +44,6 @@ class SCAILPose2ColoredMask:
                 ),
                 "object_indices": ("STRING", {"default": ""}),
                 "sort_by": (["left_to_right", "area", "none"], {"default": "left_to_right"}),
-                "replacement_mode": ("BOOLEAN", {"default": False}),
             },
             "optional": {
                 "ref_track_data": (
@@ -79,7 +78,7 @@ class SCAILPose2ColoredMask:
         driving_track_data,
         object_indices="",
         sort_by="left_to_right",
-        replacement_mode=False,
+        replacement_mode=None,
         ref_track_data=None,
         ref_mask=None,
     ):
@@ -101,7 +100,9 @@ class SCAILPose2ColoredMask:
             ref_mask=ref_mask,
             object_indices=object_indices,
             sort_by=sort_by,
-            replacement_mode=bool(replacement_mode),
+            # Legacy prompt compatibility: the UI no longer exposes this mode.
+            # Condition.mode is the single workflow-level source of truth.
+            replacement_mode=False,
             progress=report,
         )
         progress.update()

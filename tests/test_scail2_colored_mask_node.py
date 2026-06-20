@@ -407,6 +407,15 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         node_class = package.NODE_CLASS_MAPPINGS["SCAILPose2ColoredMask"]
 
         input_types = node_class.INPUT_TYPES()
+        self.assertEqual(
+            (
+                "driving_track_data",
+                "object_indices",
+                "sort_by",
+            ),
+            tuple(input_types["required"]),
+        )
+        self.assertNotIn("replacement_mode", input_types["required"])
         ref_track_config = input_types["optional"]["ref_track_data"][1]
         ref_mask_config = input_types["optional"]["ref_mask"][1]
 
@@ -499,11 +508,26 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
             track_data([[[[True]]]]),
             object_indices="",
             sort_by="none",
-            replacement_mode=False,
         )
 
         self.assertEqual(BLUE_RGB_FLOAT, pixel(pose_mask))
         self.assertEqual(WHITE_RGB_FLOAT, pixel(reference_mask))
+
+    def test_colored_mask_ignores_legacy_replacement_mode_keyword(self) -> None:
+        package = import_root_package()
+        node = package.NODE_CLASS_MAPPINGS["SCAILPose2ColoredMask"]()
+
+        pose_mask, reference_mask = node.build(
+            track_data([[[[True, False]]]]),
+            object_indices="",
+            sort_by="none",
+            replacement_mode=True,
+        )
+
+        self.assertEqual(BLUE_RGB_FLOAT, pixel(pose_mask, col=0))
+        self.assertEqual(BLACK_RGB_FLOAT, pixel(pose_mask, col=1))
+        self.assertEqual(WHITE_RGB_FLOAT, pixel(reference_mask, col=0))
+        self.assertEqual(WHITE_RGB_FLOAT, pixel(reference_mask, col=1))
 
 
 if __name__ == "__main__":
