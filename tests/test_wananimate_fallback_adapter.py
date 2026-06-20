@@ -61,9 +61,9 @@ class WanAnimateFallbackAdapterTests(unittest.TestCase):
         self.assertEqual(
             (
                 ((1.0,),),
-                ((0.0,),),
                 ((1.0,),),
-                ((0.0,),),
+                ((1.0,),),
+                ((1.0,),),
                 ((1.0,),),
             ),
             payload.mask,
@@ -85,6 +85,7 @@ class WanAnimateFallbackAdapterTests(unittest.TestCase):
 
         self.assertEqual(original_indices, condition.driving_mask_indices)
         self.assertEqual(1, condition.driving_mask_indices[0][0][0])
+        self.assertEqual(0, condition.driving_mask_indices[1][0][0])
         self.assertEqual(2, condition.driving_mask_indices[2][0][0])
 
     def test_animation_mode_omits_replacement_loss(self) -> None:
@@ -96,6 +97,16 @@ class WanAnimateFallbackAdapterTests(unittest.TestCase):
         )
 
         self.assertNotIn(LOSS_REPLACEMENT_ROPE, payload.metadata["semantic_losses"])
+        self.assertEqual(
+            (
+                ((1.0,),),
+                ((0.0,),),
+                ((1.0,),),
+                ((0.0,),),
+                ((1.0,),),
+            ),
+            payload.mask,
+        )
 
     def test_no_wanvideo_wrapper_runtime_import_is_required(self) -> None:
         condition = build_condition()

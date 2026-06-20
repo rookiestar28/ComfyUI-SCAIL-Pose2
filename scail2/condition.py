@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Literal, Sequence
 
 from .masks import (
+    MASK_OFF_THRESHOLD,
+    MASK_ON_THRESHOLD,
     SEMANTIC_MASK_COLOR_NAMES,
+    _to_raw_rgb,
     mask_indices_shape,
     semantic_mask_indices,
     semantic_mask_indices_tensor_raw,
@@ -17,6 +20,7 @@ from .wanvideo_contracts import UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES
 TYPE_SCAIL2_CONDITION = "SCAIL2_CONDITION"
 SCAIL2Mode = Literal["animation", "replacement"]
 SCAIL2_MODES: tuple[str, ...] = ("animation", "replacement")
+MaskRole = Literal["driving", "reference"]
 
 
 @dataclass(frozen=True)
@@ -57,13 +61,126 @@ def _positive_int(name: str, value: Any) -> int:
     return parsed
 
 
+def _is_black_rgb(raw: tuple[int, int, int]) -> bool:
+    return all(channel <= MASK_OFF_THRESHOLD for channel in raw)
+
+
+def _is_white_rgb(raw: tuple[int, int, int]) -> bool:
+    return all(channel >= MASK_ON_THRESHOLD for channel in raw)
+
+
+def _replacement_pixel(pixel: Sequence[Any], rgb: tuple[int, int, int]) -> tuple[Any, ...]:
+    channels = tuple(pixel)
+    normalized = all(
+        isinstance(channel, (int, float)) and 0.0 <= float(channel) <= 1.0
+        for channel in channels[:3]
+    )
+    replacement = tuple(channel / 255.0 if normalized else channel for channel in rgb)
+    return replacement + channels[3:]
+
+
+def _sequence_has_black_rgb(value: Any) -> bool:
+    for frame in value:
+        for row in frame:
+            for pixel in row:
+                if _is_black_rgb(_to_raw_rgb(pixel)):
+                    return True
+    return False
+
+
+def _normalize_rgb_mask_sequence_for_mode(
+    value: Any,
+    *,
+    mode: SCAIL2Mode,
+    role: MaskRole,
+) -> Any:
+    if mode != "replacement":
+        return value
+
+    # IMPORTANT: Colored Mask no longer exposes mode. Condition owns the
+    # official replacement polarity bridge for Colored Mask's canonical output.
+    if role == "reference" and _sequence_has_black_rgb(value):
+        return value
+
+    converted_frames = []
+    for frame in value:
+        converted_rows = []
+        for row in frame:
+            converted_pixels = []
+            for pixel in row:
+                raw = _to_raw_rgb(pixel)
+                if role == "driving" and _is_black_rgb(raw):
+                    converted_pixels.append(_replacement_pixel(pixel, (255, 255, 255)))
+                elif role == "reference" and _is_white_rgb(raw):
+                    converted_pixels.append(_replacement_pixel(pixel, (0, 0, 0)))
+                else:
+                    converted_pixels.append(pixel)
+            converted_rows.append(tuple(converted_pixels))
+        converted_frames.append(tuple(converted_rows))
+    return tuple(converted_frames)
+
+
+def _normalize_rgb_tensor_for_mode(
+    value: Any,
+    *,
+    mode: SCAIL2Mode,
+    role: MaskRole,
+) -> Any:
+    if mode != "replacement":
+        return value
+
+    try:
+        import torch
+    except ModuleNotFoundError:
+        return value
+
+    tensor = value.detach() if hasattr(value, "detach") else torch.as_tensor(value)
+    view = tensor.unsqueeze(0) if tensor.ndim == 3 else tensor
+    if view.ndim != 4 or view.shape[-1] < 3:
+        return value
+
+    rgb = view[..., :3].to(dtype=torch.float32)
+    normalized = bool(torch.logical_and(rgb >= 0.0, rgb <= 1.0).all().item())
+    off_threshold = MASK_OFF_THRESHOLD / 255.0 if normalized else MASK_OFF_THRESHOLD
+    on_threshold = MASK_ON_THRESHOLD / 255.0 if normalized else MASK_ON_THRESHOLD
+
+    black_pixels = (rgb <= off_threshold).all(dim=-1)
+    white_pixels = (rgb >= on_threshold).all(dim=-1)
+    if role == "reference" and bool(black_pixels.any().item()):
+        return value
+
+    replace_pixels = black_pixels if role == "driving" else white_pixels
+    if not bool(replace_pixels.any().item()):
+        return value
+
+    output = tensor.clone()
+    output_view = output.unsqueeze(0) if output.ndim == 3 else output
+    replacement_value = 1.0 if normalized else 255.0
+    if role == "driving":
+        replacement = torch.full(
+            (3,),
+            replacement_value,
+            dtype=output_view.dtype,
+            device=output_view.device,
+        )
+    else:
+        replacement = torch.zeros((3,), dtype=output_view.dtype, device=output_view.device)
+    output_rgb = output_view[..., :3]
+    output_rgb[replace_pixels] = replacement
+    return output
+
+
 def _normalize_mask_indices(
     value: Any,
     *,
     mask_name: str,
+    mode: SCAIL2Mode,
+    role: MaskRole,
 ) -> Any:
     if hasattr(value, "shape") and hasattr(value, "detach"):
-        indices = semantic_mask_indices_tensor_raw(value)
+        indices = semantic_mask_indices_tensor_raw(
+            _normalize_rgb_tensor_for_mode(value, mode=mode, role=role)
+        )
         mask_indices_shape(indices)
         return indices
 
@@ -78,7 +195,9 @@ def _normalize_mask_indices(
             tuple(tuple(int(item) for item in row) for row in frame)
             for frame in value
         )
-    indices = semantic_mask_indices(value)
+    indices = semantic_mask_indices(
+        _normalize_rgb_mask_sequence_for_mode(value, mode=mode, role=role)
+    )
     mask_indices_shape(indices)
     return indices
 
@@ -104,6 +223,7 @@ def _normalize_additional_references(
     *,
     width: int,
     height: int,
+    mode: SCAIL2Mode,
 ) -> tuple[AdditionalReference, ...]:
     images = tuple(additional_ref_images or ())
     masks = tuple(additional_ref_masks or ())
@@ -119,6 +239,8 @@ def _normalize_additional_references(
         mask_indices = _normalize_mask_indices(
             mask,
             mask_name=f"additional_ref_masks[{index}]",
+            mode=mode,
+            role="reference",
         )
         frame_count = _validate_mask_dimensions(
             f"additional_ref_masks[{index}]",
@@ -158,6 +280,8 @@ def build_scail2_condition(
     ref_mask_indices = _normalize_mask_indices(
         ref_mask_frames,
         mask_name="ref_mask_frames",
+        mode=mode,
+        role="reference",
     )
     ref_mask_frame_count = _validate_mask_dimensions(
         "ref_mask_frames",
@@ -171,6 +295,8 @@ def build_scail2_condition(
     driving_mask_indices = _normalize_mask_indices(
         driving_mask_frames,
         mask_name="driving_mask_frames",
+        mode=mode,
+        role="driving",
     )
     driving_mask_frame_count = _validate_mask_dimensions(
         "driving_mask_frames",
@@ -186,6 +312,7 @@ def build_scail2_condition(
         additional_ref_masks,
         width=width_value,
         height=height_value,
+        mode=mode,
     )
 
     return SCAIL2Condition(

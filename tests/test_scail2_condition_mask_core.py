@@ -18,6 +18,8 @@ from scail2.masks import (
 
 
 BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+BLUE = (0, 0, 255)
 
 
 def solid_frame(rgb, *, height=1, width=1):
@@ -374,6 +376,96 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
         self.assertFalse(animation.replace_flag)
         self.assertTrue(replacement.replace_flag)
         self.assertEqual(5, animation.num_frames)
+
+    def test_condition_mode_applies_colored_mask_replacement_polarity(self) -> None:
+        ref_mask = [[[BLUE, WHITE]]]
+        driving_mask = [[[BLUE, BLACK]] for _frame in range(5)]
+
+        animation = build_scail2_condition(
+            mode="animation",
+            ref_image="ref",
+            ref_mask_frames=ref_mask,
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=driving_mask,
+            width=2,
+            height=1,
+        )
+        replacement = build_scail2_condition(
+            mode="replacement",
+            ref_image="ref",
+            ref_mask_frames=ref_mask,
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=driving_mask,
+            width=2,
+            height=1,
+            additional_ref_images=["extra"],
+            additional_ref_masks=[ref_mask],
+        )
+
+        self.assertEqual(3, animation.driving_mask_indices[0][0][0])
+        self.assertEqual(BACKGROUND_INDEX, animation.driving_mask_indices[0][0][1])
+        self.assertEqual(3, animation.ref_mask_indices[0][0][0])
+        self.assertEqual(0, animation.ref_mask_indices[0][0][1])
+
+        self.assertEqual(3, replacement.driving_mask_indices[0][0][0])
+        self.assertEqual(0, replacement.driving_mask_indices[0][0][1])
+        self.assertEqual(3, replacement.ref_mask_indices[0][0][0])
+        self.assertEqual(BACKGROUND_INDEX, replacement.ref_mask_indices[0][0][1])
+        extra = replacement.additional_references[0].mask_indices
+        self.assertEqual(3, extra[0][0][0])
+        self.assertEqual(BACKGROUND_INDEX, extra[0][0][1])
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_condition_tensor_replacement_polarity_stays_tensor_native(self) -> None:
+        import torch
+
+        ref_mask = torch.tensor([[[[0.0, 0.0, 1.0], [1.0, 1.0, 1.0]]]])
+        driving_mask = torch.tensor(
+            [[[[0.0, 0.0, 1.0], [0.0, 0.0, 0.0]]]] * 5,
+            dtype=torch.float32,
+        )
+
+        condition = build_scail2_condition(
+            mode="replacement",
+            ref_image="ref",
+            ref_mask_frames=ref_mask,
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=driving_mask,
+            width=2,
+            height=1,
+        )
+
+        self.assertTrue(torch.is_tensor(condition.ref_mask_indices))
+        self.assertTrue(torch.is_tensor(condition.driving_mask_indices))
+        self.assertEqual(torch.int8, condition.ref_mask_indices.dtype)
+        self.assertEqual(3, int(condition.driving_mask_indices[0, 0, 0].item()))
+        self.assertEqual(0, int(condition.driving_mask_indices[0, 0, 1].item()))
+        self.assertEqual(3, int(condition.ref_mask_indices[0, 0, 0].item()))
+        self.assertEqual(
+            BACKGROUND_INDEX,
+            int(condition.ref_mask_indices[0, 0, 1].item()),
+        )
+
+    def test_condition_replacement_polarity_does_not_mutate_index_masks(self) -> None:
+        ref_mask_indices = (((3, 0),),)
+        driving_mask_indices = tuple(((3, BACKGROUND_INDEX),) for _frame in range(5))
+
+        condition = build_scail2_condition(
+            mode="replacement",
+            ref_image="ref",
+            ref_mask_frames=ref_mask_indices,
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=driving_mask_indices,
+            width=2,
+            height=1,
+        )
+
+        self.assertEqual(ref_mask_indices, condition.ref_mask_indices)
+        self.assertEqual(driving_mask_indices, condition.driving_mask_indices)
 
     def test_condition_rejects_mismatched_pose_and_mask_frame_counts(self) -> None:
         with self.assertRaisesRegex(ValueError, "frame counts must match"):
