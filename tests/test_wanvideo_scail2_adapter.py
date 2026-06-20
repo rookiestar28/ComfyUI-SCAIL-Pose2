@@ -163,6 +163,14 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
                 ]
             ),
         )
+        self.assertEqual(0, condition.ref_mask_indices[0][0][0])
+        self.assertEqual(
+            1.0,
+            payload["runtime_masks"]["reference"].value(
+                latent_frame=0,
+                channel=0,
+            ),
+        )
         self.assertEqual(1, condition.driving_mask_indices[0][0][0])
         self.assertEqual({"source_kind": "unit_test"}, payload["source"])
         self.assertNotIn("segment", payload)

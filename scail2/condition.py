@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Sequence
 
 from .masks import (
+    BACKGROUND_INDEX,
     MASK_OFF_THRESHOLD,
     MASK_ON_THRESHOLD,
     SEMANTIC_MASK_COLOR_NAMES,
@@ -202,6 +203,44 @@ def _normalize_mask_indices(
     return indices
 
 
+def _mask_indices_has_foreground(indices: Any) -> bool:
+    if hasattr(indices, "detach"):
+        try:
+            return bool((indices != BACKGROUND_INDEX).any().item())
+        except AttributeError:
+            return bool((indices != BACKGROUND_INDEX).any())
+
+    for frame in indices:
+        for row in frame:
+            for item in row:
+                if int(item) != BACKGROUND_INDEX:
+                    return True
+    return False
+
+
+def _full_frame_reference_indices(indices: Any) -> Any:
+    if hasattr(indices, "detach"):
+        try:
+            import torch
+        except ModuleNotFoundError:
+            return indices
+        return torch.zeros_like(indices)
+
+    return tuple(
+        tuple(tuple(0 for _item in row) for row in frame)
+        for frame in indices
+    )
+
+
+def _replacement_reference_indices(indices: Any) -> Any:
+    if _mask_indices_has_foreground(indices):
+        return indices
+
+    # IMPORTANT: an empty Load Image alpha mask would otherwise clear the
+    # replacement reference latent; fall back to the official no-mask behavior.
+    return _full_frame_reference_indices(indices)
+
+
 def _validate_mask_dimensions(
     mask_name: str,
     indices: Sequence[Sequence[Sequence[int]]],
@@ -250,6 +289,8 @@ def _normalize_additional_references(
         )
         if frame_count != 1:
             raise ValueError("additional reference masks must contain exactly one frame")
+        if mode == "replacement":
+            mask_indices = _replacement_reference_indices(mask_indices)
         additional.append(AdditionalReference(image=image, mask_indices=mask_indices))
     return tuple(additional)
 
@@ -291,6 +332,8 @@ def build_scail2_condition(
     )
     if ref_mask_frame_count != 1:
         raise ValueError("ref_mask_frames must contain exactly one frame")
+    if mode == "replacement":
+        ref_mask_indices = _replacement_reference_indices(ref_mask_indices)
 
     driving_mask_indices = _normalize_mask_indices(
         driving_mask_frames,

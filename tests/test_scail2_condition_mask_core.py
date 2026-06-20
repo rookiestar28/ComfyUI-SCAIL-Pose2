@@ -417,6 +417,26 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
         self.assertEqual(3, extra[0][0][0])
         self.assertEqual(BACKGROUND_INDEX, extra[0][0][1])
 
+    def test_replacement_empty_reference_mask_falls_back_to_full_frame_identity(
+        self,
+    ) -> None:
+        ref_mask = [[[WHITE, WHITE]]]
+        driving_mask = [[[BLUE, BLACK]] for _frame in range(5)]
+
+        condition = build_scail2_condition(
+            mode="replacement",
+            ref_image="ref",
+            ref_mask_frames=ref_mask,
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=driving_mask,
+            width=2,
+            height=1,
+        )
+
+        self.assertEqual(0, condition.ref_mask_indices[0][0][0])
+        self.assertEqual(0, condition.ref_mask_indices[0][0][1])
+
     @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
     def test_condition_tensor_replacement_polarity_stays_tensor_native(self) -> None:
         import torch
@@ -448,6 +468,33 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
             BACKGROUND_INDEX,
             int(condition.ref_mask_indices[0, 0, 1].item()),
         )
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_replacement_empty_tensor_reference_mask_falls_back_to_full_frame_identity(
+        self,
+    ) -> None:
+        import torch
+
+        ref_mask = torch.ones((1, 1, 2, 3), dtype=torch.float32)
+        driving_mask = torch.tensor(
+            [[[[0.0, 0.0, 1.0], [0.0, 0.0, 0.0]]]] * 5,
+            dtype=torch.float32,
+        )
+
+        condition = build_scail2_condition(
+            mode="replacement",
+            ref_image="ref",
+            ref_mask_frames=ref_mask,
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=driving_mask,
+            width=2,
+            height=1,
+        )
+
+        self.assertTrue(torch.is_tensor(condition.ref_mask_indices))
+        self.assertEqual(0, int(condition.ref_mask_indices[0, 0, 0].item()))
+        self.assertEqual(0, int(condition.ref_mask_indices[0, 0, 1].item()))
 
     def test_condition_replacement_polarity_does_not_mutate_index_masks(self) -> None:
         ref_mask_indices = (((3, 0),),)
