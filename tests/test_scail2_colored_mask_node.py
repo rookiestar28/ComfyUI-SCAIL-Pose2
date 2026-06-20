@@ -208,6 +208,153 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         self.assertEqual(BLACK_RGB_FLOAT, pixel(result.pose_video_mask, frame=1, row=1, col=1))
         self.assertEqual(WHITE_RGB_FLOAT, pixel(result.reference_image_mask, frame=0, row=1, col=1))
 
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_tensor_packed_masks_do_not_use_full_resolution_list_roundtrip(self) -> None:
+        import torch
+        import scail2.colored_masks as colored_masks
+
+        packed = torch.ones((2, 1, 1, 1), dtype=torch.uint8)
+        unpacked = torch.zeros((2, 1, 1, 8), dtype=torch.bool)
+        unpacked[0, 0, 0, 0] = True
+        unpacked[1, 0, 0, 7] = True
+        track = {
+            "packed_masks": packed,
+            "orig_size": (2, 8),
+            "n_frames": 2,
+        }
+        original_as_list = colored_masks._as_list
+
+        def fail_on_tensor_list_roundtrip(value):
+            if hasattr(value, "detach") and hasattr(value, "shape"):
+                raise AssertionError("tensor fast path must not call _as_list/.tolist()")
+            return original_as_list(value)
+
+        colored_masks._as_list = fail_on_tensor_list_roundtrip
+        try:
+            with fake_sam3_unpack_masks(unpacked):
+                result = colored_masks.render_scail2_colored_mask_pair(
+                    track,
+                    object_indices="",
+                    sort_by="none",
+                    replacement_mode=False,
+                )
+        finally:
+            colored_masks._as_list = original_as_list
+
+        self.assertEqual((2, 2, 8, 3), tuple(result.pose_video_mask.shape))
+        self.assertEqual(torch.float32, result.pose_video_mask.dtype)
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 0], torch.tensor(BLUE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 1, 0], torch.tensor(BLUE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.pose_video_mask[1, 0, 7], torch.tensor(BLUE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.reference_image_mask[0, 0, 0], torch.tensor(WHITE_RGB_FLOAT)))
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_tensor_masks_preserve_first_selected_object_color_priority(self) -> None:
+        import torch
+
+        masks = torch.zeros((1, 2, 1, 2), dtype=torch.bool)
+        masks[0, 0, 0, 0] = True
+        masks[0, 1, 0, 0] = True
+        masks[0, 1, 0, 1] = True
+
+        result = render_scail2_colored_mask_pair(
+            {
+                "masks": masks,
+                "orig_size": (1, 2),
+                "n_frames": 1,
+            },
+            object_indices="",
+            sort_by="none",
+            replacement_mode=False,
+        )
+
+        self.assertEqual((0, 1), result.object_order)
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 0], torch.tensor(BLUE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 1], torch.tensor(RED_RGB_FLOAT)))
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_tensor_masks_preserve_left_to_right_shared_reference_colors(self) -> None:
+        import torch
+
+        masks = torch.zeros((1, 2, 1, 3), dtype=torch.bool)
+        masks[0, 0, 0, 2] = True
+        masks[0, 1, 0, 0] = True
+        track = {
+            "masks": masks,
+            "orig_size": (1, 3),
+            "n_frames": 1,
+        }
+
+        result = render_scail2_colored_mask_pair(
+            track,
+            ref_track_data=track,
+            object_indices="",
+            sort_by="left_to_right",
+            replacement_mode=False,
+        )
+
+        self.assertEqual((1, 0), result.object_order)
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 0], torch.tensor(BLUE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 1], torch.tensor(BLACK_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 2], torch.tensor(RED_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.reference_image_mask[0, 0, 0], torch.tensor(BLUE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.reference_image_mask[0, 0, 1], torch.tensor(WHITE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.reference_image_mask[0, 0, 2], torch.tensor(RED_RGB_FLOAT)))
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_tensor_masks_preserve_area_filter_replacement_and_plain_ref_mask(self) -> None:
+        import torch
+
+        masks = torch.zeros((1, 2, 1, 3), dtype=torch.bool)
+        masks[0, 0, 0, 0] = True
+        masks[0, 1, 0, 1] = True
+        masks[0, 1, 0, 2] = True
+
+        result = render_scail2_colored_mask_pair(
+            {
+                "masks": masks,
+                "orig_size": (1, 3),
+                "n_frames": 1,
+            },
+            ref_mask=torch.tensor([[True, False, True]]),
+            object_indices="0",
+            sort_by="area",
+            replacement_mode=True,
+        )
+
+        self.assertEqual((1,), result.object_order)
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 0], torch.tensor(WHITE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 1], torch.tensor(BLUE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 2], torch.tensor(BLUE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.reference_image_mask[0, 0, 0], torch.tensor(BLUE_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.reference_image_mask[0, 0, 1], torch.tensor(BLACK_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.reference_image_mask[0, 0, 2], torch.tensor(BLUE_RGB_FLOAT)))
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_tensor_masks_preserve_no_object_fallback_and_progress(self) -> None:
+        import torch
+
+        messages = []
+
+        result = render_scail2_colored_mask_pair(
+            {
+                "masks": torch.zeros((2, 0, 1, 2), dtype=torch.bool),
+                "orig_size": (1, 2),
+                "n_frames": 2,
+            },
+            object_indices="",
+            sort_by="none",
+            replacement_mode=False,
+            progress=messages.append,
+        )
+
+        self.assertEqual((), result.object_order)
+        self.assertTrue(torch.equal(result.pose_video_mask[1, 0, 1], torch.tensor(BLACK_RGB_FLOAT)))
+        self.assertTrue(torch.equal(result.reference_image_mask[0, 0, 1], torch.tensor(WHITE_RGB_FLOAT)))
+        combined = "\n".join(messages)
+        self.assertIn("render driving frame 1/2 objects=0", combined)
+        self.assertIn("render complete", combined)
+
     def test_missing_reference_inputs_render_solid_reference_mask(self) -> None:
         result = render_scail2_colored_mask_pair(
             track_data([[[[True, False]]]]),
