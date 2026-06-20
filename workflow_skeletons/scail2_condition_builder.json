@@ -33,8 +33,9 @@
       "class_type": "SCAILPose2WanVideoSCAIL2Adapter",
       "role": "wanvideo_wrapper_scail2_payload_contract",
       "output_type": "SCAIL2_WANVIDEO_PAYLOAD",
-      "v1_compat_output_type": "SCAIL_WAN_SCAIL_IMAGES",
-      "v1_compat_outputs": ["ref_image", "pose_images", "clip_ref_image", "width", "height", "num_frames"],
+      "output_names": ["condition"],
+      "public_output_count": 1,
+      "v1_compat_payload_fields": ["ref_image", "pose_images", "clip_ref_image", "width", "height", "num_frames"],
       "degrade_to_v1_default": false,
       "allow_degradation_default": false
     }
@@ -95,8 +96,7 @@
     "degradation": {
       "is_full_scail2_parity": false,
       "requires_explicit_enable": true,
-      "v1_outputs_when_enabled": {
-        "wan_scail_images": "SCAIL_WAN_SCAIL_IMAGES",
+      "v1_payload_fields_when_enabled": {
         "ref_image": "IMAGE",
         "pose_images": "IMAGE",
         "clip_ref_image": "IMAGE",

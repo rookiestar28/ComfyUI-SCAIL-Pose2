@@ -135,14 +135,15 @@ class WorkflowSkeletonTests(unittest.TestCase):
             set(wanvideo_contracts.UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES),
             set(data["legacy_v1_semantic_losses"]),
         )
-        self.assertEqual(
-            "SCAIL_WAN_SCAIL_IMAGES",
-            next(
-                node
-                for node in data["nodes"]
-                if node["id"] == "wanvideo_scail2_adapter"
-            )["v1_compat_output_type"],
+        adapter_node = next(
+            node
+            for node in data["nodes"]
+            if node["id"] == "wanvideo_scail2_adapter"
         )
+        self.assertEqual(["condition"], adapter_node["output_names"])
+        self.assertEqual(1, adapter_node["public_output_count"])
+        self.assertNotIn("v1_compat_output_type", adapter_node)
+        self.assertNotIn("v1_compat_outputs", adapter_node)
         self.assertEqual(
             {
                 "ref_image": "IMAGE",
@@ -153,7 +154,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
             },
             {
                 key: data["wanvideo_scail2_adapter"]["degradation"][
-                    "v1_outputs_when_enabled"
+                    "v1_payload_fields_when_enabled"
                 ][key]
                 for key in ("ref_image", "pose_images", "width", "height", "num_frames")
             },

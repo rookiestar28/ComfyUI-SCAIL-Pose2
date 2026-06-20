@@ -46,9 +46,9 @@ WanVideoWrapper also provides its own `(Download)Load NLF Model`, `Load NLF Mode
 
 ### SCAIL-Pose2 / WanVideoWrapper
 
-- `SCAILPose2WanVideoSCAIL2Adapter`: converts a validated `SCAIL2_CONDITION` into a versioned SCAIL-2 adapter payload. The first output is named `condition` in the UI, but its ComfyUI type is `SCAIL2_WANVIDEO_PAYLOAD`; it is an adapter condition payload, not the original `SCAIL2_CONDITION` object.
+- `SCAILPose2WanVideoSCAIL2Adapter`: converts a validated `SCAIL2_CONDITION` into a versioned SCAIL-2 adapter payload. Its only output is named `condition` in the UI, but its ComfyUI type is `SCAIL2_WANVIDEO_PAYLOAD`; it is an adapter condition payload, not the original `SCAIL2_CONDITION` object.
 - Native WanVideoWrapper wiring uses `WanVideoAddSCAIL2ConditionEmbeds`: connect this adapter node's `condition` output to that wrapper node's `condition` input, then connect the wrapper node's `image_embeds` output to `WanVideo Sampler v2.image_embeds`. The wrapper native path stores SCAIL-2 data under `scail2_embeds` and rejects simultaneous legacy `scail_embeds`.
-- When `degrade_to_v1` and `allow_degradation` are both enabled, `SCAILPose2WanVideoSCAIL2Adapter` also exposes a lossy v1 fallback: `ref_image`, `pose_images`, `clip_ref_image`, `width`, `height`, and `num_frames`. These can be wired to WanVideoWrapper v1 SCAIL image nodes only when users accept the documented semantic losses.
+- When `degrade_to_v1` and `allow_degradation` are both enabled, lossy v1 fallback data may be retained inside the adapter payload for internal compatibility checks, but the public ComfyUI node no longer exposes separate v1 image or dimension output sockets.
 - The older standalone v1 image adapter public node is no longer registered. Its validation behavior is now used internally by the SCAIL-2 adapter fallback path.
 
 ### SCAIL-Pose2 / SAM3

@@ -9,10 +9,7 @@ from .scail2.observability import (
     perf_counter_ms,
     safe_value_summary,
 )
-from .scail2.wanvideo_scail2_adapter import (
-    build_wanvideo_scail2_adapter_payload,
-    summarize_wanvideo_scail2_payload,
-)
+from .scail2.wanvideo_scail2_adapter import build_wanvideo_scail2_adapter_payload
 
 LOGGER = get_logger(__name__)
 
@@ -28,28 +25,8 @@ class SCAILPose2WanVideoSCAIL2Adapter:
             },
         }
 
-    RETURN_TYPES = (
-        "SCAIL2_WANVIDEO_PAYLOAD",
-        "STRING",
-        "SCAIL_WAN_SCAIL_IMAGES",
-        "IMAGE",
-        "IMAGE",
-        "IMAGE",
-        "INT",
-        "INT",
-        "INT",
-    )
-    RETURN_NAMES = (
-        "condition",
-        "summary",
-        "wan_scail_images",
-        "ref_image",
-        "pose_images",
-        "clip_ref_image",
-        "width",
-        "height",
-        "num_frames",
-    )
+    RETURN_TYPES = ("SCAIL2_WANVIDEO_PAYLOAD",)
+    RETURN_NAMES = ("condition",)
     FUNCTION = "build"
     CATEGORY = "SCAIL-Pose2/WanVideoWrapper"
     DESCRIPTION = "Build a versioned SCAIL-2 adapter payload for WanVideoWrapper workflows."
@@ -74,38 +51,15 @@ class SCAILPose2WanVideoSCAIL2Adapter:
             allow_degradation=bool(allow_degradation),
         )
         progress.update()
-        summary = summarize_wanvideo_scail2_payload(payload)
         LOGGER.info(
-            "SCAIL-Pose2 WanVideo SCAIL-2 Adapter done: summary=%s runtime_masks=%s elapsed_ms=%.2f",
-            summary,
+            "SCAIL-Pose2 WanVideo SCAIL-2 Adapter done: kind=%s degraded=%s runtime_masks=%s elapsed_ms=%.2f",
+            payload.get("kind"),
+            bool(payload.get("degraded")),
             sorted(payload.get("runtime_masks", {}).keys()),
             elapsed_ms(started_ms),
         )
         progress.update()
-        wan_scail_images = payload.get("wan_scail_v1_images")
-        if wan_scail_images is None:
-            return (
-                payload,
-                summary,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-        return (
-            payload,
-            summary,
-            wan_scail_images,
-            wan_scail_images["ref_image"],
-            wan_scail_images["pose_images"],
-            wan_scail_images["clip_ref_image"],
-            wan_scail_images["width"],
-            wan_scail_images["height"],
-            wan_scail_images["num_frames"],
-        )
+        return (payload,)
 
 
 NODE_CLASS_MAPPINGS = {

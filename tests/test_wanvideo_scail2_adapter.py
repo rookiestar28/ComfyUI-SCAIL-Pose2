@@ -349,61 +349,39 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
             package.NODE_DISPLAY_NAME_MAPPINGS,
         )
         node_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2WanVideoSCAIL2Adapter"]
-        self.assertEqual(
-            (
-                "SCAIL2_WANVIDEO_PAYLOAD",
-                "STRING",
-                "SCAIL_WAN_SCAIL_IMAGES",
-                "IMAGE",
-                "IMAGE",
-                "IMAGE",
-                "INT",
-                "INT",
-                "INT",
-            ),
-            node_cls.RETURN_TYPES,
-        )
-        self.assertEqual("condition", node_cls.RETURN_NAMES[0])
+        self.assertEqual(("SCAIL2_WANVIDEO_PAYLOAD",), node_cls.RETURN_TYPES)
+        self.assertEqual(("condition",), node_cls.RETURN_NAMES)
 
         node = node_cls()
         outputs = node.build(build_condition())
-        payload, summary = outputs[:2]
+        (payload,) = outputs
 
         self.assertEqual("wanvideo_scail2_condition_adapter", payload["kind"])
-        self.assertIn("live_wrapper_supported=True", summary)
-        self.assertIn("wan_scail_v1_outputs=unavailable", summary)
-        self.assertEqual((None, None, None, None, None, None, None), outputs[2:])
+        self.assertEqual(1, len(outputs))
         self.assertFalse(any(name.startswith("WanVideoWrapper") for name in sys.modules))
 
-    def test_adapter_node_outputs_current_wrapper_v1_sockets_when_degraded(self) -> None:
+    def test_adapter_node_keeps_degraded_payload_internal_to_condition_output(self) -> None:
         package = import_root_package()
         node_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2WanVideoSCAIL2Adapter"]
         condition = build_condition(with_wrapper_images=True)
 
-        outputs = node_cls().build(
+        (payload,) = node_cls().build(
             condition,
             degrade_to_v1=True,
             allow_degradation=True,
         )
-        (
-            payload,
-            summary,
-            wan_scail_images,
-            ref_image,
-            pose_images,
-            clip_ref_image,
-            width,
-            height,
-            frames,
-        ) = outputs
 
         self.assertTrue(payload["degraded"])
-        self.assertIn("wan_scail_v1_outputs=available", summary)
+        wan_scail_images = payload["wan_scail_v1_images"]
         self.assertEqual("wan_scail_v1_images", wan_scail_images["kind"])
-        self.assertIs(condition.ref_image, ref_image)
-        self.assertIs(condition.pose_video, pose_images)
-        self.assertIs(condition.ref_image, clip_ref_image)
-        self.assertEqual((8, 8, 5), (width, height, frames))
+        self.assertIs(condition.ref_image, wan_scail_images["ref_image"])
+        self.assertIs(condition.pose_video, wan_scail_images["pose_images"])
+        self.assertIs(condition.ref_image, wan_scail_images["clip_ref_image"])
+        self.assertEqual((8, 8, 5), (
+            wan_scail_images["width"],
+            wan_scail_images["height"],
+            wan_scail_images["num_frames"],
+        ))
         self.assertTrue(payload["target"]["live_wrapper_supported"])
         self.assertEqual("v1_scail_embeds", payload["target"]["fallback_wrapper_path"])
 
