@@ -240,6 +240,80 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertFalse(data["degradation"]["v1_fallback_is_full_scail2_parity"])
 
+    def test_replacement_background_lock_skeleton_wires_samples_mask_path(self) -> None:
+        data = load_skeleton("wanvideo_replacement_background_lock.json")
+        class_types = {node.get("class_type") for node in data["nodes"]}
+        links = {
+            (tuple(link["from"]), tuple(link["to"]), link["type"])
+            for link in data["links"]
+        }
+
+        self.assertTrue(
+            {
+                "SCAILPose2ColoredMask",
+                "SCAILPose2SCAIL2Condition",
+                "SCAILPose2ReplacementDenoiseMask",
+                "WanVideoEncode",
+                "WanVideoAddSCAIL2ConditionEmbeds",
+                wanvideo_contracts.NODE_WAN_SAMPLER_V2,
+            }.issubset(class_types)
+        )
+        self.assertIn(
+            (
+                ("colored_masks", "pose_video_mask"),
+                ("replacement_denoise_mask", "pose_video_mask"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("scail2_condition", "condition"),
+                ("replacement_denoise_mask", "condition"),
+                "SCAIL2_CONDITION",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("replacement_denoise_mask", "mask"),
+                ("wanvideo_encode", "mask"),
+                "MASK",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("workflow_inputs", "images"),
+                ("wanvideo_encode", "image"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("wanvideo_encode", "samples"),
+                ("wan_sampler", "samples"),
+                "LATENT",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("wan_scail2_condition_embeds", "image_embeds"),
+                ("wan_sampler", "image_embeds"),
+                "WANVIDIMAGE_EMBEDS",
+            ),
+            links,
+        )
+        sampler = next(node for node in data["nodes"] if node["id"] == "wan_sampler")
+        self.assertTrue(sampler["required_settings"]["add_noise_to_samples"])
+        contract = data["background_lock_contract"]
+        self.assertTrue(contract["required"])
+        self.assertFalse(contract["conditioning_alone_hard_preserves_background"])
+        self.assertEqual(1.0, contract["mask_polarity"]["subject_replace_area"])
+        self.assertEqual(0.0, contract["mask_polarity"]["background_preserve_area"])
+
     def test_wananimate_fallback_skeleton_requires_explicit_degradation(self) -> None:
         data = load_skeleton("wananimate_fallback.json")
         class_types = {node.get("class_type") for node in data["nodes"]}

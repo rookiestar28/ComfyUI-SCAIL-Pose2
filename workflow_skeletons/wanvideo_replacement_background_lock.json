@@ -1,0 +1,196 @@
+{
+  "schema": "scail_pose2.workflow_skeleton.v1",
+  "title": "Native SCAIL-2 Replacement Background Lock Skeleton",
+  "execution": "static_only",
+  "live_generation": "deferred",
+  "nodes": [
+    {
+      "id": "workflow_inputs",
+      "class_type": "ExternalWorkflowInputs",
+      "role": "user_supplied_images_tracks_models_prompts_and_vae",
+      "outputs": {
+        "images": "IMAGE",
+        "ref_image": "IMAGE",
+        "vae": "WANVAE"
+      }
+    },
+    {
+      "id": "sam3_video_track",
+      "class_type": "SAM3_VideoTrack",
+      "display_name": "SAM3 Video Track",
+      "role": "comfyui_builtin_sam3_video_track",
+      "outputs": [
+        { "name": "track_data", "type": "SAM3_TRACK_DATA" }
+      ]
+    },
+    {
+      "id": "colored_masks",
+      "class_type": "SCAILPose2ColoredMask",
+      "role": "sam3_track_colored_mask_creation",
+      "outputs": [
+        { "name": "pose_video_mask", "type": "IMAGE" },
+        { "name": "reference_image_mask", "type": "IMAGE" }
+      ]
+    },
+    {
+      "id": "scail2_condition",
+      "class_type": "SCAILPose2SCAIL2Condition",
+      "role": "validated_replacement_condition_builder",
+      "mode": "replacement",
+      "output_type": "SCAIL2_CONDITION",
+      "input_order": ["pose_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"]
+    },
+    {
+      "id": "replacement_denoise_mask",
+      "class_type": "SCAILPose2ReplacementDenoiseMask",
+      "role": "subject_only_sampler_denoise_mask",
+      "output_type": "MASK",
+      "mask_polarity": {
+        "subject_replace_area": 1.0,
+        "background_preserve_area": 0.0
+      }
+    },
+    {
+      "id": "wanvideo_encode",
+      "class_type": "WanVideoEncode",
+      "role": "wrapper_latent_samples_with_noise_mask",
+      "output_type": "LATENT",
+      "output_name": "samples"
+    },
+    {
+      "id": "wanvideo_scail2_adapter",
+      "class_type": "SCAILPose2WanVideoSCAIL2Adapter",
+      "role": "wanvideo_wrapper_scail2_payload_contract",
+      "output_type": "SCAIL2_WANVIDEO_PAYLOAD",
+      "output_name": "condition",
+      "degrade_to_v1_default": false,
+      "allow_degradation_default": false
+    },
+    {
+      "id": "wan_empty_embeds",
+      "class_type": "WanVideoEmptyEmbeds",
+      "role": "wrapper_base_embeds",
+      "output_type": "WANVIDIMAGE_EMBEDS"
+    },
+    {
+      "id": "wan_scail2_condition_embeds",
+      "class_type": "WanVideoAddSCAIL2ConditionEmbeds",
+      "role": "wrapper_native_scail2_embeds",
+      "input_type": "SCAIL2_WANVIDEO_PAYLOAD",
+      "output_type": "WANVIDIMAGE_EMBEDS",
+      "embeds_key": "scail2_embeds"
+    },
+    {
+      "id": "wan_context_options",
+      "class_type": "WanVideoContextOptions",
+      "role": "wrapper_context_window_owner",
+      "output_type": "WANVIDCONTEXT",
+      "optional": true
+    },
+    {
+      "id": "wan_sampler",
+      "class_type": "WanVideoSamplerv2",
+      "role": "wrapper_sampler",
+      "input_type": "WANVIDIMAGE_EMBEDS",
+      "required_settings": {
+        "add_noise_to_samples": true
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": ["workflow_inputs", "images"],
+      "to": ["sam3_video_track", "images"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["workflow_inputs", "images"],
+      "to": ["wanvideo_encode", "image"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["workflow_inputs", "vae"],
+      "to": ["wanvideo_encode", "vae"],
+      "type": "WANVAE"
+    },
+    {
+      "from": ["sam3_video_track", "track_data"],
+      "to": ["colored_masks", "driving_track_data"],
+      "type": "SAM3_TRACK_DATA"
+    },
+    {
+      "from": ["colored_masks", "pose_video_mask"],
+      "to": ["scail2_condition", "pose_video_mask"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["colored_masks", "reference_image_mask"],
+      "to": ["scail2_condition", "ref_mask"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["scail2_condition", "condition"],
+      "to": ["replacement_denoise_mask", "condition"],
+      "type": "SCAIL2_CONDITION"
+    },
+    {
+      "from": ["colored_masks", "pose_video_mask"],
+      "to": ["replacement_denoise_mask", "pose_video_mask"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["replacement_denoise_mask", "mask"],
+      "to": ["wanvideo_encode", "mask"],
+      "type": "MASK"
+    },
+    {
+      "from": ["scail2_condition", "condition"],
+      "to": ["wanvideo_scail2_adapter", "condition"],
+      "type": "SCAIL2_CONDITION"
+    },
+    {
+      "from": ["wanvideo_scail2_adapter", "condition"],
+      "to": ["wan_scail2_condition_embeds", "condition"],
+      "type": "SCAIL2_WANVIDEO_PAYLOAD"
+    },
+    {
+      "from": ["wan_empty_embeds", "image_embeds"],
+      "to": ["wan_scail2_condition_embeds", "embeds"],
+      "type": "WANVIDIMAGE_EMBEDS"
+    },
+    {
+      "from": ["wan_scail2_condition_embeds", "image_embeds"],
+      "to": ["wan_sampler", "image_embeds"],
+      "type": "WANVIDIMAGE_EMBEDS"
+    },
+    {
+      "from": ["wanvideo_encode", "samples"],
+      "to": ["wan_sampler", "samples"],
+      "type": "LATENT"
+    },
+    {
+      "from": ["wan_context_options", "context_options"],
+      "to": ["wan_sampler", "context_options"],
+      "type": "WANVIDCONTEXT",
+      "optional": true
+    }
+  ],
+  "background_lock_contract": {
+    "required": true,
+    "conditioning_alone_hard_preserves_background": false,
+    "mask_source": "SCAILPose2ReplacementDenoiseMask.mask",
+    "encode_node": "WanVideoEncode",
+    "encode_mask_socket": "mask",
+    "sampler_samples_socket": "samples",
+    "sampler_add_noise_to_samples": true,
+    "mask_polarity": {
+      "subject_replace_area": 1.0,
+      "background_preserve_area": 0.0
+    }
+  },
+  "warnings": [
+    "This static skeleton documents replacement background-lock wiring and does not execute generation.",
+    "SCAIL-2 conditioning guides the model, but hard background preservation requires the WanVideoEncode samples/noise_mask path.",
+    "Live inference still requires a compatible WanVideoWrapper build, Wan model assets, VAE, text embeds, scheduler, and user runtime configuration."
+  ]
+}

@@ -6,6 +6,7 @@ __all__ = [
     "generation_policy",
     "masks",
     "preprocessing",
+    "replacement_mask",
     "sam3_preprocessing",
     "wanvideo_adapter",
     "wananimate_fallback",

@@ -59,6 +59,7 @@ WanVideoWrapper also provides its own `(Download)Load NLF Model`, `Load NLF Mode
 ### SCAIL-Pose2 / SCAIL-2
 
 - `SCAILPose2SCAIL2Condition`: builds a validated `SCAIL2_CONDITION` payload from `pose_video`, `pose_video_mask`, `ref_image`, `ref_mask`, optional `additional_ref_image` / `additional_ref_mask`, mode, dimensions, and `num_frames`. Supported modes are `animation` and `replacement`; pose-rendered driving videos are animation-mode inputs. Long-video context length and overlap should be controlled by WanVideoWrapper context options downstream.
+- `SCAILPose2ReplacementDenoiseMask`: builds a standard ComfyUI `MASK` for replacement workflows. Connect the same raw `pose_video_mask` used by the Condition node plus the validated `SCAIL2_CONDITION`; the output mask uses `1.0` for the subject/replace area and `0.0` for the original background/preserve area.
 
 ## Native SCAIL-2 Workflow Notes
 
@@ -67,6 +68,17 @@ For native WanVideoWrapper SCAIL-2 workflows, connect `SCAILPose2WanVideoSCAIL2A
 When using SAM3 masks, connect `SCAILPose2ColoredMask.pose_video_mask` to `SCAILPose2SCAIL2Condition.pose_video_mask`. If you do not provide a separate reference mask, connect `SCAILPose2ColoredMask.reference_image_mask` to `SCAILPose2SCAIL2Condition.ref_mask` so the Condition payload still receives the reference-mask signal expected by SCAIL-2 conditioning.
 
 Keep `SCAILPose2SCAIL2Condition.width` and `height` at the final generation size. Do not halve them to match pose latents. The WanVideo adapter packs reference masks at full latent size and packs driving masks at pose-control latent size so wrapper pose latents and driving masks share temporal/spatial shape.
+
+Replacement mode has two separate data paths:
+
+1. SCAIL-2 conditioning: `SCAILPose2WanVideoSCAIL2Adapter.condition` -> `WanVideoAddSCAIL2ConditionEmbeds.condition` -> `WanVideo Sampler v2.image_embeds`.
+2. Hard background preservation: original driving video -> `WanVideoEncode.image`, `SCAILPose2ReplacementDenoiseMask.mask` -> `WanVideoEncode.mask`, then `WanVideoEncode.samples` -> `WanVideo Sampler v2.samples`.
+
+Use both paths for replacement background lock. SCAIL-2 conditioning guides the generated subject and reference behavior, but it does not hard-freeze the original driving-video background by itself. In WanVideoWrapper, enable `add_noise_to_samples` on `WanVideo Sampler v2` for clean-video replacement/inpaint workflows.
+
+The Colored Mask preview normally shows a black background with colored subject regions. That is expected: the preview is a semantic mask, not the original video. For replacement workflows, the new denoise mask derives subject pixels from this raw semantic mask before the Condition node's replacement-mode semantic conversion.
+
+Reference identity depends on the full reference path being wired correctly: connect `ref_image`, connect `ref_mask` or `reference_image_mask`, and keep the wrapper CLIP/reference embed path connected through the SCAIL-2 condition embeds node. If reference identity still drifts, check the reference mask quality, CLIP/reference image connection, and replacement denoise mask margin controls (`grow_pixels` and `blur_pixels`).
 
 The Colored Mask, Condition, and WanVideo adapter nodes emit safe progress/log summaries for long work. These summaries report metadata such as shape, dtype, device, frame count, object count, and elapsed time; they do not log raw mask pixels, prompts, model paths, or media contents.
 
