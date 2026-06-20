@@ -163,6 +163,32 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
 
         self.assertIs(tensor, materialized)
 
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_materialize_returns_canonical_comfy_image_tensor(self) -> None:
+        import torch
+
+        base = torch.tensor(
+            [
+                [
+                    [[-0.5, 0.25, 1.5], [0.75, 2.0, -1.0]],
+                    [[0.5, 0.5, 0.5], [1.25, -0.25, 0.0]],
+                ]
+            ],
+            dtype=torch.float64,
+            requires_grad=True,
+        )
+        non_contiguous = base.transpose(1, 2)
+
+        materialized = materialize_comfy_image(non_contiguous)
+
+        self.assertEqual((1, 2, 2, 3), tuple(materialized.shape))
+        self.assertEqual(torch.float32, materialized.dtype)
+        self.assertEqual("cpu", materialized.device.type)
+        self.assertFalse(materialized.requires_grad)
+        self.assertTrue(materialized.is_contiguous())
+        self.assertGreaterEqual(float(materialized.min()), 0.0)
+        self.assertLessEqual(float(materialized.max()), 1.0)
+
     def test_observability_summary_is_shape_only_and_value_safe(self) -> None:
         tensor = FakeTensorLike()
 

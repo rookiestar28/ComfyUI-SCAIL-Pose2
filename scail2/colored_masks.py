@@ -943,9 +943,17 @@ def materialize_comfy_image(image_frames: Any) -> Any:
             import torch
         except ModuleNotFoundError:
             return image_frames
+        if isinstance(image_frames, torch.Tensor):
+            # IMPORTANT: file/preview nodes expect canonical ComfyUI IMAGE tensors.
+            return (
+                image_frames.detach()
+                .to(device="cpu", dtype=torch.float32)
+                .clamp(0.0, 1.0)
+                .contiguous()
+            )
         return image_frames.to(dtype=torch.float32)
     try:
         import torch
     except ModuleNotFoundError:
         return image_frames
-    return torch.tensor(image_frames, dtype=torch.float32)
+    return torch.tensor(image_frames, dtype=torch.float32).clamp(0.0, 1.0).contiguous()
