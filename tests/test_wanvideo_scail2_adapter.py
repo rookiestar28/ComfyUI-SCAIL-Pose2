@@ -225,6 +225,48 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
             ],
         )
 
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_payload_preserves_tensor_runtime_masks_for_tensor_condition(self) -> None:
+        import torch
+        from scail2.wanvideo_scail2_adapter import (
+            build_wanvideo_scail2_adapter_payload,
+        )
+
+        ref_mask = torch.ones((1, 8, 8, 3), dtype=torch.float32)
+        driving_mask = torch.zeros((5, 8, 8, 3), dtype=torch.float32)
+        driving_mask[0, ..., 0] = 1.0
+        driving_mask[1, ..., 1] = 1.0
+        driving_mask[2, ..., 2] = 1.0
+        driving_mask[3, ..., 0] = 1.0
+        driving_mask[4, ..., 1] = 1.0
+        condition = build_scail2_condition(
+            mode="animation",
+            ref_image="ref",
+            ref_mask_frames=ref_mask,
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=driving_mask,
+            width=8,
+            height=8,
+            source_kind="unit_test",
+        )
+
+        payload = build_wanvideo_scail2_adapter_payload(condition)
+
+        self.assertTrue(torch.is_tensor(condition.driving_mask_indices))
+        self.assertTrue(torch.is_tensor(payload["runtime_masks"]["reference"].data))
+        self.assertTrue(torch.is_tensor(payload["runtime_masks"]["driving"].data))
+        self.assertEqual((1, 1, 28, 1, 1), payload["runtime_masks"]["reference"].shape)
+        self.assertEqual((1, 2, 28, 1, 1), payload["runtime_masks"]["driving"].shape)
+        self.assertEqual(
+            [1, 2, 28, 1, 1],
+            payload["schema"]["runtime_mask_layouts"]["driving"]["comfy_layout"][
+                "shape"
+            ],
+        )
+        encoded = json.dumps(payload["schema"], sort_keys=True)
+        self.assertIn("RuntimeMaskLatent28", encoded)
+
     def test_lossy_v1_degradation_is_refused_by_default(self) -> None:
         from scail2.wanvideo_scail2_adapter import (
             build_wanvideo_scail2_adapter_payload,

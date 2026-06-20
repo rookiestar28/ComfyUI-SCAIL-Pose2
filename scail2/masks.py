@@ -10,6 +10,7 @@ BACKGROUND_INDEX = -1
 MASK_ON_THRESHOLD = 225
 MASK_OFF_THRESHOLD = 30
 TEMPORAL_COMPRESSION_STRIDE = 4
+TENSOR_RUNTIME_PACK_CHUNK_FRAMES = 16
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,7 @@ class MaskLatent28:
 
 @dataclass(frozen=True)
 class RuntimeMaskLatent28:
-    data: tuple[Any, ...]
+    data: Any
     frame_count: int
     latent_frame_count: int
     source_height: int
@@ -188,11 +189,24 @@ def _freeze_index_frames(index_frames: Any) -> tuple[tuple[tuple[int, ...], ...]
     )
 
 
-def semantic_mask_indices_tensor(
+def _torch_or_none() -> Any | None:
+    try:
+        import torch
+    except ModuleNotFoundError:
+        return None
+    return torch
+
+
+def _is_torch_tensor(value: Any) -> bool:
+    torch = _torch_or_none()
+    return bool(torch is not None and isinstance(value, torch.Tensor))
+
+
+def semantic_mask_indices_tensor_raw(
     frames: Any,
     *,
     strict: bool = True,
-) -> tuple[tuple[tuple[int, ...], ...], ...]:
+) -> Any:
     try:
         import torch
     except ModuleNotFoundError as exc:  # pragma: no cover - depends on local env
@@ -202,7 +216,9 @@ def semantic_mask_indices_tensor(
     if tensor.ndim == 3:
         tensor = tensor.unsqueeze(0)
     if tensor.ndim != 4 or tensor.shape[-1] < 3:
-        raise ValueError("semantic mask tensor must have shape [frames, height, width, channels]")
+        raise ValueError(
+            "semantic mask tensor must have shape [frames, height, width, channels]"
+        )
     if tensor.shape[0] <= 0 or tensor.shape[1] <= 0 or tensor.shape[2] <= 0:
         raise ValueError("semantic mask tensor must be non-empty")
 
@@ -223,7 +239,7 @@ def semantic_mask_indices_tensor(
     g = active[..., 1]
     b = active[..., 2]
 
-    indices = torch.full(r.shape, BACKGROUND_INDEX, dtype=torch.int16, device=r.device)
+    indices = torch.full(r.shape, BACKGROUND_INDEX, dtype=torch.int8, device=r.device)
     indices[r & g & b] = 0
     indices[r & ~g & ~b] = 1
     indices[~r & g & ~b] = 2
@@ -232,12 +248,40 @@ def semantic_mask_indices_tensor(
     indices[r & ~g & b] = 5
     indices[~r & g & b] = 6
 
+    return indices
+
+
+def semantic_mask_indices_tensor(
+    frames: Any,
+    *,
+    strict: bool = True,
+) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    indices = semantic_mask_indices_tensor_raw(frames, strict=strict)
     return _freeze_index_frames(indices.cpu().tolist())
 
 
-def mask_indices_shape(
-    indices: Sequence[Sequence[Sequence[int]]],
-) -> MaskIndexShape:
+def mask_indices_shape(indices: Any) -> MaskIndexShape:
+    if _is_torch_tensor(indices):
+        tensor = indices.detach()
+        if tensor.ndim != 3:
+            raise ValueError(
+                "mask indices tensor must have shape [frames, height, width]"
+            )
+        if tensor.shape[0] <= 0 or tensor.shape[1] <= 0 or tensor.shape[2] <= 0:
+            raise ValueError("mask index tensor must be non-empty")
+        if bool(
+            (
+                (tensor != BACKGROUND_INDEX)
+                & ((tensor < 0) | (tensor > 6))
+            ).any().item()
+        ):
+            raise ValueError("mask index values must be background or 0..6")
+        return MaskIndexShape(
+            frames=int(tensor.shape[0]),
+            height=int(tensor.shape[1]),
+            width=int(tensor.shape[2]),
+        )
+
     if not indices:
         raise ValueError("mask indices must contain at least one frame")
     height = len(indices[0])
@@ -403,6 +447,82 @@ def _freeze_runtime_data(data: list[list[list[list[list[float]]]]]) -> tuple[Any
     )
 
 
+def _pack_tensor_indices_to_runtime_data(
+    indices: Any,
+    *,
+    latent_frame_count: int,
+    latent_height: int,
+    latent_width: int,
+    temporal_stride: int,
+) -> Any:
+    torch = _torch_or_none()
+    if torch is None:  # pragma: no cover - tensor path requires torch
+        raise RuntimeError("torch is required for tensor semantic masks")
+
+    import torch.nn.functional as F
+
+    tensor = indices.detach()
+    frame_count = int(tensor.shape[0])
+    downsampled = torch.empty(
+        (frame_count, len(SEMANTIC_MASK_COLORS), latent_height, latent_width),
+        dtype=torch.float32,
+        device=tensor.device,
+    )
+    chunk_size = min(TENSOR_RUNTIME_PACK_CHUNK_FRAMES, frame_count)
+    for frame_start in range(0, frame_count, chunk_size):
+        frame_end = min(frame_start + chunk_size, frame_count)
+        chunk = tensor[frame_start:frame_end]
+        for color_index in range(len(SEMANTIC_MASK_COLORS)):
+            plane = (chunk == color_index).to(dtype=torch.float32).unsqueeze(1)
+            pooled = F.adaptive_avg_pool2d(
+                plane,
+                (latent_height, latent_width),
+            )
+            downsampled[frame_start:frame_end, color_index] = pooled[:, 0]
+
+    padded = torch.cat(
+        [
+            downsampled[0:1].expand(temporal_stride, -1, -1, -1),
+            downsampled[1:],
+        ],
+        dim=0,
+    )
+    target_frame_count = latent_frame_count * temporal_stride
+    if int(padded.shape[0]) < target_frame_count:
+        padded = torch.cat(
+            [
+                padded,
+                downsampled[-1:].expand(
+                    target_frame_count - int(padded.shape[0]),
+                    -1,
+                    -1,
+                    -1,
+                ),
+            ],
+            dim=0,
+        )
+    if int(padded.shape[0]) > target_frame_count:
+        padded = padded[:target_frame_count]
+
+    return (
+        padded.reshape(
+            latent_frame_count,
+            temporal_stride,
+            len(SEMANTIC_MASK_COLORS),
+            latent_height,
+            latent_width,
+        )
+        .reshape(
+            latent_frame_count,
+            temporal_stride * len(SEMANTIC_MASK_COLORS),
+            latent_height,
+            latent_width,
+        )
+        .unsqueeze(0)
+        .contiguous()
+    )
+
+
 def pack_semantic_mask_indices_to_28_channels(
     indices: Sequence[Sequence[Sequence[int]]],
     *,
@@ -473,6 +593,26 @@ def pack_semantic_mask_indices_to_runtime_28_channels(
     role = str(layout_role).strip() or "runtime_mask"
     latent_frame_count = (shape.frames - 1) // temporal_stride + 1
 
+    if _is_torch_tensor(indices):
+        return RuntimeMaskLatent28(
+            data=_pack_tensor_indices_to_runtime_data(
+                indices,
+                latent_frame_count=latent_frame_count,
+                latent_height=latent_height,
+                latent_width=latent_width,
+                temporal_stride=temporal_stride,
+            ),
+            frame_count=shape.frames,
+            latent_frame_count=latent_frame_count,
+            source_height=shape.height,
+            source_width=shape.width,
+            latent_height=latent_height,
+            latent_width=latent_width,
+            temporal_stride=temporal_stride,
+            spatial_downsample=spatial_downsample,
+            layout_role=role,
+        )
+
     downsampled_frames = [
         _downsample_semantic_frame(
             frame,
@@ -524,7 +664,10 @@ def runtime_mask_to_torch(
     except ModuleNotFoundError as exc:  # pragma: no cover - depends on local env
         raise RuntimeError("torch is required to materialize runtime mask tensors") from exc
 
-    tensor = torch.tensor(runtime_mask.data, dtype=torch.float32)
+    if isinstance(runtime_mask.data, torch.Tensor):
+        tensor = runtime_mask.data.to(dtype=torch.float32)
+    else:
+        tensor = torch.tensor(runtime_mask.data, dtype=torch.float32)
     if layout == "comfy":
         return tensor
     if layout == "scail2":

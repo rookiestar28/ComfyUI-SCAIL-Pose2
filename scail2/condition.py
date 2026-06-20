@@ -9,7 +9,7 @@ from .masks import (
     SEMANTIC_MASK_COLOR_NAMES,
     mask_indices_shape,
     semantic_mask_indices,
-    semantic_mask_indices_tensor,
+    semantic_mask_indices_tensor_raw,
 )
 from .wanvideo_contracts import UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES
 
@@ -22,7 +22,7 @@ SCAIL2_MODES: tuple[str, ...] = ("animation", "replacement")
 @dataclass(frozen=True)
 class AdditionalReference:
     image: Any
-    mask_indices: tuple[tuple[tuple[int, ...], ...], ...]
+    mask_indices: Any
 
 
 @dataclass(frozen=True)
@@ -34,9 +34,9 @@ class SCAIL2Condition:
     height: int
     num_frames: int
     ref_image: Any
-    ref_mask_indices: tuple[tuple[tuple[int, ...], ...], ...]
+    ref_mask_indices: Any
     pose_video: Any
-    driving_mask_indices: tuple[tuple[tuple[int, ...], ...], ...]
+    driving_mask_indices: Any
     additional_references: tuple[AdditionalReference, ...]
     source_kind: str = "user_rgb_masks"
     mask_palette: tuple[str, ...] = SEMANTIC_MASK_COLOR_NAMES
@@ -58,12 +58,12 @@ def _positive_int(name: str, value: Any) -> int:
 
 
 def _normalize_mask_indices(
-    value: Sequence[Any],
+    value: Any,
     *,
     mask_name: str,
-) -> tuple[tuple[tuple[int, ...], ...], ...]:
+) -> Any:
     if hasattr(value, "shape") and hasattr(value, "detach"):
-        indices = semantic_mask_indices_tensor(value)
+        indices = semantic_mask_indices_tensor_raw(value)
         mask_indices_shape(indices)
         return indices
 

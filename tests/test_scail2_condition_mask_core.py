@@ -61,6 +61,116 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
 
         self.assertEqual((0, 1, 2, BACKGROUND_INDEX), indices[0][0])
 
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_condition_tensor_masks_do_not_freeze_full_resolution_indices(self) -> None:
+        import torch
+        from scail2 import masks as scail_masks
+
+        ref_mask = torch.zeros((1, 2, 2, 3), dtype=torch.float32)
+        ref_mask[..., :] = torch.tensor((1.0, 1.0, 1.0))
+        driving_mask = torch.zeros((5, 2, 2, 3), dtype=torch.float32)
+        driving_mask[0, ..., :] = torch.tensor((1.0, 0.0, 0.0))
+        driving_mask[1, ..., :] = torch.tensor((0.0, 1.0, 0.0))
+        driving_mask[2, ..., :] = torch.tensor((0.0, 0.0, 1.0))
+        driving_mask[3, ..., :] = torch.tensor((1.0, 0.0, 0.0))
+        driving_mask[4, ..., :] = torch.tensor((0.0, 1.0, 0.0))
+        original_freeze = scail_masks._freeze_index_frames
+
+        def fail_on_freeze(_value):
+            raise AssertionError(
+                "Condition tensor path must not freeze full-resolution indices"
+            )
+
+        scail_masks._freeze_index_frames = fail_on_freeze
+        try:
+            condition = build_scail2_condition(
+                mode="animation",
+                ref_image="ref",
+                ref_mask_frames=ref_mask,
+                pose_video="pose",
+                pose_frame_count=5,
+                driving_mask_frames=driving_mask,
+                width=2,
+                height=2,
+            )
+        finally:
+            scail_masks._freeze_index_frames = original_freeze
+
+        self.assertEqual((1, 2, 2), tuple(condition.ref_mask_indices.shape))
+        self.assertEqual((5, 2, 2), tuple(condition.driving_mask_indices.shape))
+        self.assertEqual(torch.int8, condition.driving_mask_indices.dtype)
+        self.assertEqual(0, int(condition.ref_mask_indices[0, 0, 0].item()))
+        self.assertEqual(1, int(condition.driving_mask_indices[0, 0, 0].item()))
+        self.assertEqual(2, int(condition.driving_mask_indices[1, 0, 0].item()))
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_tensor_runtime_mask_packing_matches_tuple_contract(self) -> None:
+        import torch
+        from scail2 import masks as scail_masks
+
+        colors = [
+            (255, 255, 255),
+            (255, 0, 0),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 0, 255),
+        ]
+        tuple_indices = semantic_mask_indices(
+            frames_from_colors(colors, height=9, width=9)
+        )
+        tensor_frames = torch.tensor(
+            frames_from_colors(colors, height=9, width=9),
+            dtype=torch.float32,
+        )
+        tensor_indices = scail_masks.semantic_mask_indices_tensor_raw(tensor_frames)
+
+        tuple_runtime = scail_masks.pack_semantic_mask_indices_to_runtime_28_channels(
+            tuple_indices
+        )
+        tensor_runtime = scail_masks.pack_semantic_mask_indices_to_runtime_28_channels(
+            tensor_indices
+        )
+
+        self.assertTrue(torch.is_tensor(tensor_runtime.data))
+        self.assertEqual(tuple_runtime.shape, tensor_runtime.shape)
+        self.assertTrue(
+            torch.allclose(
+                scail_masks.runtime_mask_to_torch(tuple_runtime),
+                scail_masks.runtime_mask_to_torch(tensor_runtime),
+            )
+        )
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "torch is unavailable")
+    def test_tensor_runtime_mask_packing_downsamples_per_color_chunks(self) -> None:
+        import torch
+        import torch.nn.functional as F
+        from scail2 import masks as scail_masks
+
+        tensor_indices = scail_masks.semantic_mask_indices_tensor_raw(
+            torch.tensor(
+                frames_from_colors([(255, 0, 0)] * 5, height=8, width=8),
+                dtype=torch.float32,
+            )
+        )
+        calls = []
+        original_pool = F.adaptive_avg_pool2d
+
+        def recording_pool(input_tensor, output_size):
+            calls.append(tuple(input_tensor.shape))
+            return original_pool(input_tensor, output_size)
+
+        F.adaptive_avg_pool2d = recording_pool
+        try:
+            scail_masks.pack_semantic_mask_indices_to_runtime_28_channels(
+                tensor_indices
+            )
+        finally:
+            F.adaptive_avg_pool2d = original_pool
+
+        self.assertTrue(calls)
+        self.assertTrue(all(shape[1] == 1 for shape in calls))
+        self.assertFalse(any(shape[1] == 7 for shape in calls))
+
     def test_strict_palette_rejects_ambiguous_non_semantic_colors(self) -> None:
         self.assertEqual(1, classify_rgb_semantic_color((225, 0, 0)))
         self.assertEqual(BACKGROUND_INDEX, classify_rgb_semantic_color((30, 0, 0)))
