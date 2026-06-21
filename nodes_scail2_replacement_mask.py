@@ -23,8 +23,6 @@ class SCAILPose2ReplacementDenoiseMask:
                 "pose_video_mask": ("IMAGE",),
                 "grow_pixels": ("INT", {"default": 8, "min": 0, "max": 512, "step": 1}),
                 "blur_pixels": ("INT", {"default": 0, "min": 0, "max": 512, "step": 1}),
-                "strict_replacement_mode": ("BOOLEAN", {"default": True}),
-                "invert": ("BOOLEAN", {"default": False}),
             },
         }
 
@@ -33,8 +31,9 @@ class SCAILPose2ReplacementDenoiseMask:
     FUNCTION = "build"
     CATEGORY = "SCAIL-Pose2/SCAIL-2"
     DESCRIPTION = (
-        "Build a replacement denoise MASK for WanVideoEncode.mask. "
-        "Subject pixels are 1.0 and background pixels are 0.0."
+        "Build a subject denoise / background preserve MASK for WanVideoEncode.mask. "
+        "Replacement mode uses subject=1.0/background=0.0; non-replacement "
+        "modes emit a full-denoise passthrough mask."
     )
 
     def build(
@@ -43,19 +42,15 @@ class SCAILPose2ReplacementDenoiseMask:
         pose_video_mask,
         grow_pixels=8,
         blur_pixels=0,
-        strict_replacement_mode=True,
-        invert=False,
     ):
         progress = make_progress(2)
         started_ms = perf_counter_ms()
         LOGGER.info(
-            "SCAIL-Pose2 Replacement Denoise Mask start: condition=%s pose_video_mask=%s grow=%s blur=%s strict=%s invert=%s",
+            "SCAIL-Pose2 Replacement Denoise Mask start: condition=%s pose_video_mask=%s grow=%s blur=%s",
             safe_value_summary(condition),
             safe_value_summary(pose_video_mask),
             int(grow_pixels),
             int(blur_pixels),
-            bool(strict_replacement_mode),
-            bool(invert),
         )
         progress.update()
         result = build_replacement_denoise_mask(
@@ -63,8 +58,8 @@ class SCAILPose2ReplacementDenoiseMask:
             pose_video_mask=pose_video_mask,
             grow_pixels=grow_pixels,
             blur_pixels=blur_pixels,
-            strict_replacement_mode=bool(strict_replacement_mode),
-            invert=bool(invert),
+            strict_replacement_mode=False,
+            invert=False,
         )
         progress.update()
         LOGGER.info(

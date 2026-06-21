@@ -5,8 +5,14 @@ import sys
 import unittest
 from pathlib import Path
 
+import scail2.replacement_mask as replacement_mask_module
 from scail2.condition import build_scail2_condition
 from scail2.replacement_mask import build_replacement_denoise_mask
+from scail2.replacement_mask import (
+    SCAIL_POSE2_CONDITION_MODE_ATTR,
+    SCAIL_POSE2_DISABLE_SAMPLES_ATTR,
+    SCAIL_POSE2_DISABLE_SAMPLES_REASON_ATTR,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,9 +77,46 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
         self.assertEqual((5, 1, 2), tuple(result.mask.shape))
         self.assertEqual(1.0, float(result.mask[0, 0, 0].item()))
         self.assertEqual(0.0, float(result.mask[0, 0, 1].item()))
+        self.assertFalse(getattr(result.mask, SCAIL_POSE2_DISABLE_SAMPLES_ATTR, False))
         self.assertIn("subject_ratio=0.500000", result.summary)
 
-    def test_strict_mode_rejects_animation_condition(self) -> None:
+    def test_animation_condition_is_allowed_by_default(self) -> None:
+        pose_mask = frames_from_pixels([BLUE, BLACK])
+        condition = build_scail2_condition(
+            mode="animation",
+            ref_image="ref",
+            ref_mask_frames=[[[WHITE, WHITE]]],
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=pose_mask,
+            width=2,
+            height=1,
+        )
+
+        result = build_replacement_denoise_mask(
+            condition=condition,
+            pose_video_mask=pose_mask,
+            grow_pixels=0,
+        )
+
+        self.assertEqual((5, 1, 2), tuple(result.mask.shape))
+        self.assertEqual(1.0, float(result.mask[0, 0, 0].item()))
+        self.assertEqual(1.0, float(result.mask[0, 0, 1].item()))
+        self.assertEqual("mode_passthrough", result.fast_path)
+        self.assertTrue(getattr(result.mask, SCAIL_POSE2_DISABLE_SAMPLES_ATTR, False))
+        self.assertEqual(
+            "non_replacement_mode",
+            getattr(result.mask, SCAIL_POSE2_DISABLE_SAMPLES_REASON_ATTR, None),
+        )
+        self.assertEqual(
+            "animation",
+            getattr(result.mask, SCAIL_POSE2_CONDITION_MODE_ATTR, None),
+        )
+        self.assertIn("mode=animation", result.summary)
+        self.assertIn("background_lock=disabled", result.summary)
+        self.assertIn("samples_path=disabled", result.summary)
+
+    def test_explicit_strict_mode_rejects_animation_condition(self) -> None:
         pose_mask = frames_from_pixels([BLUE, BLACK])
         condition = build_scail2_condition(
             mode="animation",
@@ -90,6 +133,7 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
             build_replacement_denoise_mask(
                 condition=condition,
                 pose_video_mask=pose_mask,
+                strict_replacement_mode=True,
             )
 
     def test_empty_subject_mask_fails_clearly(self) -> None:
@@ -135,6 +179,67 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
         self.assertEqual("cpu", result.mask.device.type)
         self.assertEqual(1.0, float(result.mask[0, 0, 0].item()))
         self.assertEqual(0.0, float(result.mask[0, 1, 1].item()))
+        self.assertEqual("tensor_subject_mask", result.fast_path)
+        self.assertIn("fast_path=tensor_subject_mask", result.summary)
+        self.assertIn("input_device=cpu", result.summary)
+        self.assertIn("output_device=cpu", result.summary)
+
+    def test_tensor_fast_path_does_not_reparse_semantic_indices(self) -> None:
+        import torch
+
+        pose_mask = torch.zeros((5, 2, 2, 3), dtype=torch.float32)
+        pose_mask[:, 0, 0, :] = torch.tensor((0.0, 0.0, 1.0))
+        condition = replacement_condition(
+            pose_mask=pose_mask,
+            width=2,
+            height=2,
+            frames=5,
+        )
+        original = replacement_mask_module.semantic_mask_indices_tensor_raw
+
+        def fail_if_called(_value):
+            raise AssertionError("tensor fast path must not call semantic index parser")
+
+        replacement_mask_module.semantic_mask_indices_tensor_raw = fail_if_called
+        try:
+            result = replacement_mask_module.build_replacement_denoise_mask(
+                condition=condition,
+                pose_video_mask=pose_mask,
+                grow_pixels=0,
+            )
+        finally:
+            replacement_mask_module.semantic_mask_indices_tensor_raw = original
+
+        self.assertEqual("tensor_subject_mask", result.fast_path)
+        self.assertEqual((5, 2, 2), tuple(result.mask.shape))
+        self.assertEqual(torch.float32, result.mask.dtype)
+        self.assertEqual("cpu", result.mask.device.type)
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("torch") and __import__("torch").cuda.is_available(),
+        "CUDA is unavailable",
+    )
+    def test_tensor_fast_path_uses_cuda_when_available(self) -> None:
+        import torch
+
+        pose_mask = torch.zeros((5, 2, 2, 3), dtype=torch.float32)
+        pose_mask[:, 0, 0, :] = torch.tensor((0.0, 0.0, 1.0))
+        condition = replacement_condition(
+            pose_mask=pose_mask,
+            width=2,
+            height=2,
+            frames=5,
+        )
+
+        result = build_replacement_denoise_mask(
+            condition=condition,
+            pose_video_mask=pose_mask,
+            grow_pixels=0,
+        )
+
+        self.assertEqual("tensor_subject_mask", result.fast_path)
+        self.assertTrue(result.work_device.startswith("cuda"))
+        self.assertEqual("cpu", result.output_device)
 
     def test_grow_and_blur_controls_are_deterministic(self) -> None:
         pose_mask = []
@@ -191,6 +296,40 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
         self.assertEqual(-5.0, float(merged[2, 4, 0, 0].item()))
         self.assertEqual(10.0, float(merged[2, 4, 0, 1].item()))
 
+    def test_animation_mode_disables_samples_background_lock(self) -> None:
+        import torch
+
+        pose_mask = frames_from_pixels([BLUE, BLACK])
+        condition = build_scail2_condition(
+            mode="animation",
+            ref_image="ref",
+            ref_mask_frames=[[[WHITE, WHITE]]],
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=pose_mask,
+            width=2,
+            height=1,
+        )
+
+        result = build_replacement_denoise_mask(
+            condition=condition,
+            pose_video_mask=pose_mask,
+            grow_pixels=0,
+        )
+
+        original_latent = torch.full((3, 5, 1, 2), 10.0)
+        generated_latent = torch.full((3, 5, 1, 2), -5.0)
+        preserve_mask = (1.0 - result.mask).unsqueeze(0).expand_as(original_latent) > 0
+        merged = torch.where(preserve_mask, original_latent, generated_latent)
+
+        self.assertFalse(bool(preserve_mask.any().item()))
+        self.assertEqual(-5.0, float(merged[0, 0, 0, 0].item()))
+        self.assertEqual(-5.0, float(merged[0, 0, 0, 1].item()))
+        self.assertEqual("mode_passthrough", result.fast_path)
+        self.assertTrue(getattr(result.mask, SCAIL_POSE2_DISABLE_SAMPLES_ATTR, False))
+        self.assertIn("background_lock=disabled", result.summary)
+        self.assertIn("samples_path=disabled", result.summary)
+
     def test_node_is_registered_with_mask_output_contract(self) -> None:
         package = import_root_package()
 
@@ -205,11 +344,43 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
                 "pose_video_mask",
                 "grow_pixels",
                 "blur_pixels",
-                "strict_replacement_mode",
-                "invert",
             ),
             tuple(input_types["required"]),
         )
+
+    def test_node_allows_animation_condition_without_strict_widget(self) -> None:
+        package = import_root_package()
+        node_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2ReplacementDenoiseMask"]
+        package_condition = __import__(
+            f"{PACKAGE_NAME}.scail2.condition",
+            fromlist=["build_scail2_condition"],
+        )
+        pose_mask = frames_from_pixels([BLUE, BLACK])
+        condition = package_condition.build_scail2_condition(
+            mode="animation",
+            ref_image="ref",
+            ref_mask_frames=[[[WHITE, WHITE]]],
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=pose_mask,
+            width=2,
+            height=1,
+        )
+
+        mask, summary = node_cls().build(
+            condition=condition,
+            pose_video_mask=pose_mask,
+            grow_pixels=0,
+            blur_pixels=0,
+        )
+
+        self.assertEqual((5, 1, 2), tuple(mask.shape))
+        self.assertEqual(1.0, float(mask[0, 0, 0].item()))
+        self.assertEqual(1.0, float(mask[0, 0, 1].item()))
+        self.assertTrue(getattr(mask, SCAIL_POSE2_DISABLE_SAMPLES_ATTR, False))
+        self.assertIn("mode=animation", summary)
+        self.assertIn("background_lock=disabled", summary)
+        self.assertIn("samples_path=disabled", summary)
 
     def test_core_path_does_not_import_wanvideowrapper(self) -> None:
         build_replacement_denoise_mask(

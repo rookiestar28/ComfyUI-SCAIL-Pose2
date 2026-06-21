@@ -179,6 +179,14 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertIn(
             (
+                ("workflow_inputs", "driving_video"),
+                ("sam3_video_track", "images"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
                 ("sam3_video_track", "track_data"),
                 ("colored_masks", "driving_track_data"),
                 "SAM3_TRACK_DATA",
@@ -285,8 +293,8 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                ("workflow_inputs", "images"),
-                ("wanvideo_encode", "image"),
+                ("workflow_inputs", "driving_video"),
+                ("wanvideo_encode", "driving_video"),
                 "IMAGE",
             ),
             links,
@@ -310,6 +318,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         sampler = next(node for node in data["nodes"] if node["id"] == "wan_sampler")
         self.assertTrue(sampler["required_settings"]["add_noise_to_samples"])
         contract = data["background_lock_contract"]
+        self.assertEqual("driving_video", contract["encode_driving_video_socket"])
         self.assertTrue(contract["required"])
         self.assertFalse(contract["conditioning_alone_hard_preserves_background"])
         self.assertEqual(1.0, contract["mask_polarity"]["subject_replace_area"])

@@ -7,7 +7,7 @@
     {
       "id": "workflow_inputs",
       "class_type": "ExternalWorkflowInputs",
-      "role": "user_supplied_images_tracks_models_and_prompts"
+      "role": "user_supplied_driving_video_tracks_models_and_prompts"
     },
     {
       "id": "sam3_video_track",
@@ -74,7 +74,7 @@
   ],
   "links": [
     {
-      "from": ["workflow_inputs", "images"],
+      "from": ["workflow_inputs", "driving_video"],
       "to": ["sam3_video_track", "images"],
       "type": "IMAGE"
     },

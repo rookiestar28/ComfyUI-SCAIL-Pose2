@@ -7,9 +7,9 @@
     {
       "id": "workflow_inputs",
       "class_type": "ExternalWorkflowInputs",
-      "role": "user_supplied_images_tracks_models_prompts_and_vae",
+      "role": "user_supplied_driving_video_tracks_models_prompts_and_vae",
       "outputs": {
-        "images": "IMAGE",
+        "driving_video": "IMAGE",
         "ref_image": "IMAGE",
         "vae": "WANVAE"
       }
@@ -99,13 +99,13 @@
   ],
   "links": [
     {
-      "from": ["workflow_inputs", "images"],
+      "from": ["workflow_inputs", "driving_video"],
       "to": ["sam3_video_track", "images"],
       "type": "IMAGE"
     },
     {
-      "from": ["workflow_inputs", "images"],
-      "to": ["wanvideo_encode", "image"],
+      "from": ["workflow_inputs", "driving_video"],
+      "to": ["wanvideo_encode", "driving_video"],
       "type": "IMAGE"
     },
     {
@@ -180,6 +180,7 @@
     "conditioning_alone_hard_preserves_background": false,
     "mask_source": "SCAILPose2ReplacementDenoiseMask.mask",
     "encode_node": "WanVideoEncode",
+    "encode_driving_video_socket": "driving_video",
     "encode_mask_socket": "mask",
     "sampler_samples_socket": "samples",
     "sampler_add_noise_to_samples": true,
