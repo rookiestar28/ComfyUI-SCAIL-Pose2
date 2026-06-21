@@ -15,6 +15,8 @@ PACKAGE_NAME = "ComfyUI_SCAIL_Pose2_ConditionNodeTestPackage"
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
+BLACK = (0, 0, 0)
+BLUE = (0, 0, 255)
 
 
 def solid_frame(rgb, *, height=1, width=1):
@@ -23,6 +25,16 @@ def solid_frame(rgb, *, height=1, width=1):
 
 def frames_from_colors(colors, *, height=1, width=1):
     return [solid_frame(color, height=height, width=width) for color in colors]
+
+
+def image_frame(width: int, height: int, fill=BLACK):
+    return [[fill for _col in range(width)] for _row in range(height)]
+
+
+def paint_rect(frame, *, x0: int, y0: int, x1: int, y1: int, color) -> None:
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            frame[y][x] = color
 
 
 class FakeTensorImage:
@@ -160,6 +172,66 @@ class Scail2ConditionNodeTests(unittest.TestCase):
         self.assertEqual(1, len(condition.additional_references))
         self.assertEqual("extra_ref", condition.additional_references[0].image)
         self.assertEqual(2, condition.additional_references[0].mask_indices[0][0][0])
+
+    def test_replacement_mode_rejects_misaligned_pose_and_mask_geometry(self) -> None:
+        node = condition_node()
+        pose = image_frame(8, 8)
+        mask = image_frame(8, 8)
+        paint_rect(pose, x0=0, y0=0, x1=2, y1=2, color=BLUE)
+        paint_rect(mask, x0=4, y0=4, x1=8, y1=8, color=BLUE)
+
+        with self.assertRaisesRegex(ValueError, "Pose Mask Geometry Align"):
+            node.build(
+                pose_video=[pose],
+                pose_video_mask=[mask],
+                ref_image="ref",
+                ref_mask=frames_from_colors([WHITE], height=8, width=8),
+                mode="replacement",
+                width=8,
+                height=8,
+                num_frames=1,
+            )
+
+    def test_replacement_mode_accepts_aligned_pose_and_mask_geometry(self) -> None:
+        node = condition_node()
+        pose = image_frame(8, 8)
+        mask = image_frame(8, 8)
+        paint_rect(pose, x0=4, y0=4, x1=8, y1=8, color=BLUE)
+        paint_rect(mask, x0=4, y0=4, x1=8, y1=8, color=BLUE)
+
+        condition, = node.build(
+            pose_video=[pose],
+            pose_video_mask=[mask],
+            ref_image="ref",
+            ref_mask=frames_from_colors([WHITE], height=8, width=8),
+            mode="replacement",
+            width=8,
+            height=8,
+            num_frames=1,
+        )
+
+        self.assertEqual("replacement", condition.mode)
+        self.assertEqual(3, condition.driving_mask_indices[0][4][4])
+
+    def test_animation_mode_does_not_hard_fail_on_geometry_drift(self) -> None:
+        node = condition_node()
+        pose = image_frame(8, 8)
+        mask = image_frame(8, 8)
+        paint_rect(pose, x0=0, y0=0, x1=2, y1=2, color=BLUE)
+        paint_rect(mask, x0=4, y0=4, x1=8, y1=8, color=BLUE)
+
+        condition, = node.build(
+            pose_video=[pose],
+            pose_video_mask=[mask],
+            ref_image="ref",
+            ref_mask=frames_from_colors([WHITE], height=8, width=8),
+            mode="animation",
+            width=8,
+            height=8,
+            num_frames=1,
+        )
+
+        self.assertEqual("animation", condition.mode)
 
     def test_condition_node_rejects_invalid_user_inputs(self) -> None:
         node = condition_node()

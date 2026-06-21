@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from .scail2.preprocessing import build_user_mask_condition
+from .scail2.geometry import diagnose_pose_mask_geometry
 from .scail2.observability import (
     elapsed_ms,
     get_logger,
@@ -15,6 +16,11 @@ from .scail2.observability import (
 )
 
 LOGGER = get_logger(__name__)
+
+REPLACEMENT_GEOMETRY_MIN_IOU = 0.05
+REPLACEMENT_GEOMETRY_MAX_CENTER_DELTA_RATIO = 0.35
+REPLACEMENT_GEOMETRY_MIN_SIZE_RATIO = 0.25
+REPLACEMENT_GEOMETRY_MAX_SIZE_RATIO = 4.0
 
 
 def _as_list(value: Any) -> Any:
@@ -98,6 +104,73 @@ def _normalize_additional_inputs(
     return additional_images, additional_masks
 
 
+def _validate_replacement_geometry(
+    *,
+    mode: str,
+    pose_video: Any,
+    pose_video_mask: Any,
+    width: Any,
+    height: Any,
+) -> None:
+    if mode != "replacement":
+        return
+    if not (_is_tensor_like_image(pose_video) or not isinstance(pose_video, (str, bytes))):
+        return
+
+    try:
+        diagnostic = diagnose_pose_mask_geometry(
+            pose_video=pose_video,
+            pose_video_mask=pose_video_mask,
+            target_width=int(width),
+            target_height=int(height),
+        )
+    except (TypeError, ValueError, RuntimeError) as exc:
+        LOGGER.info("SCAIL-Pose2 replacement geometry diagnostic skipped: %s", exc)
+        return
+
+    issues: list[str] = []
+    if diagnostic.status != "ok" or diagnostic.compared_frames <= 0:
+        issues.append(f"status={diagnostic.status}")
+    if diagnostic.min_iou is not None and diagnostic.min_iou < REPLACEMENT_GEOMETRY_MIN_IOU:
+        issues.append(f"min_iou={diagnostic.min_iou:.4f}")
+    target_diagonal = (int(width) * int(width) + int(height) * int(height)) ** 0.5
+    max_center_delta = (
+        diagnostic.max_center_delta_px / target_diagonal
+        if diagnostic.max_center_delta_px is not None and target_diagonal > 0
+        else None
+    )
+    if (
+        max_center_delta is not None
+        and max_center_delta > REPLACEMENT_GEOMETRY_MAX_CENTER_DELTA_RATIO
+    ):
+        issues.append(f"center_delta_ratio={max_center_delta:.4f}")
+    for label, ratio in (
+        ("width_ratio", diagnostic.mean_width_ratio),
+        ("height_ratio", diagnostic.mean_height_ratio),
+    ):
+        if ratio is None:
+            continue
+        if (
+            ratio < REPLACEMENT_GEOMETRY_MIN_SIZE_RATIO
+            or ratio > REPLACEMENT_GEOMETRY_MAX_SIZE_RATIO
+        ):
+            issues.append(f"{label}={ratio:.4f}")
+
+    if issues:
+        summary = diagnostic.to_summary()
+        raise ValueError(
+            "replacement pose_video geometry is not aligned with pose_video_mask; "
+            "connect SCAIL-Pose2 Pose Mask Geometry Align before "
+            "SCAIL-Pose2 SCAIL-2 Condition. "
+            f"issues={', '.join(issues)} summary={summary}"
+        )
+
+    LOGGER.info(
+        "SCAIL-Pose2 replacement geometry accepted: %s",
+        diagnostic.to_summary(),
+    )
+
+
 class SCAILPose2SCAIL2Condition:
     @classmethod
     def INPUT_TYPES(cls):
@@ -152,6 +225,13 @@ class SCAILPose2SCAIL2Condition:
             additional_ref_mask,
         )
         progress.update()
+        _validate_replacement_geometry(
+            mode=mode,
+            pose_video=pose_video,
+            pose_video_mask=pose_video_mask,
+            width=width,
+            height=height,
+        )
         condition = build_user_mask_condition(
             mode=mode,
             ref_image=ref_image,
