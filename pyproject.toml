@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-scail-pose2"
 description = "ComfyUI SCAIL/SCAIL-2 pose preprocessing and WanVideoWrapper adapter nodes."
-version = "0.1.5"
+version = "1.0.0"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "rookiestar28" }]
