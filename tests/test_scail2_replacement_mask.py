@@ -12,6 +12,8 @@ from scail2.replacement_mask import (
     SCAIL_POSE2_CONDITION_MODE_ATTR,
     SCAIL_POSE2_DISABLE_SAMPLES_ATTR,
     SCAIL_POSE2_DISABLE_SAMPLES_REASON_ATTR,
+    SCAIL_POSE2_MASK_ROLE_ATTR,
+    SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE,
 )
 
 
@@ -78,6 +80,14 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
         self.assertEqual(1.0, float(result.mask[0, 0, 0].item()))
         self.assertEqual(0.0, float(result.mask[0, 0, 1].item()))
         self.assertFalse(getattr(result.mask, SCAIL_POSE2_DISABLE_SAMPLES_ATTR, False))
+        self.assertEqual(
+            "replacement",
+            getattr(result.mask, SCAIL_POSE2_CONDITION_MODE_ATTR, None),
+        )
+        self.assertEqual(
+            SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE,
+            getattr(result.mask, SCAIL_POSE2_MASK_ROLE_ATTR, None),
+        )
         self.assertIn("subject_ratio=0.500000", result.summary)
 
     def test_animation_condition_is_allowed_by_default(self) -> None:
@@ -111,6 +121,10 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
         self.assertEqual(
             "animation",
             getattr(result.mask, SCAIL_POSE2_CONDITION_MODE_ATTR, None),
+        )
+        self.assertEqual(
+            SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE,
+            getattr(result.mask, SCAIL_POSE2_MASK_ROLE_ATTR, None),
         )
         self.assertIn("mode=animation", result.summary)
         self.assertIn("background_lock=disabled", result.summary)

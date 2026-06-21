@@ -19,6 +19,8 @@ TENSOR_FAST_PATH_CHUNK_FRAMES = 16
 SCAIL_POSE2_DISABLE_SAMPLES_ATTR = "scail_pose2_disable_samples"
 SCAIL_POSE2_DISABLE_SAMPLES_REASON_ATTR = "scail_pose2_disable_samples_reason"
 SCAIL_POSE2_CONDITION_MODE_ATTR = "scail_pose2_condition_mode"
+SCAIL_POSE2_MASK_ROLE_ATTR = "scail_pose2_mask_role"
+SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE = "replacement_denoise_mask"
 
 
 @dataclass(frozen=True)
@@ -174,6 +176,16 @@ def _subject_mask_chunk_from_rgb(torch: Any, rgb: Any) -> Any:
     return (rgb > off_threshold).any(dim=-1).to(dtype=torch.float32)
 
 
+def _attach_scail_pose2_mask_metadata(
+    mask: Any,
+    *,
+    condition: SCAIL2Condition,
+    role: str,
+) -> None:
+    setattr(mask, SCAIL_POSE2_CONDITION_MODE_ATTR, condition.mode)
+    setattr(mask, SCAIL_POSE2_MASK_ROLE_ATTR, role)
+
+
 def _build_tensor_subject_mask(
     pose_video_mask: Any,
     *,
@@ -213,6 +225,11 @@ def _build_tensor_subject_mask(
         raise ValueError("pose_video_mask contains no subject pixels")
 
     mask = torch.cat(output_chunks, dim=0).contiguous()
+    _attach_scail_pose2_mask_metadata(
+        mask,
+        condition=condition,
+        role=SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE,
+    )
     subject_ratio = float(mask.mean().item())
     summary = _replacement_summary(
         condition=condition,
@@ -333,7 +350,11 @@ def _build_mode_passthrough_mask(
     mask = torch.ones((frame_count, height, width), dtype=torch.float32).contiguous()
     setattr(mask, SCAIL_POSE2_DISABLE_SAMPLES_ATTR, True)
     setattr(mask, SCAIL_POSE2_DISABLE_SAMPLES_REASON_ATTR, "non_replacement_mode")
-    setattr(mask, SCAIL_POSE2_CONDITION_MODE_ATTR, condition.mode)
+    _attach_scail_pose2_mask_metadata(
+        mask,
+        condition=condition,
+        role=SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE,
+    )
     subject_ratio = float(mask.mean().item())
     summary = (
         _replacement_summary(
@@ -432,6 +453,11 @@ def build_replacement_denoise_mask(
         mask = 1.0 - mask
     mask = mask.clamp(0.0, 1.0).detach().to(device="cpu", dtype=_torch_required().float32)
     mask = mask.contiguous()
+    _attach_scail_pose2_mask_metadata(
+        mask,
+        condition=valid_condition,
+        role=SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE,
+    )
 
     frame_count, height, width = (int(part) for part in mask.shape)
     subject_ratio = float(mask.mean().item())
