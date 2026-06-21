@@ -62,7 +62,7 @@ The older standalone v1 image adapter public node is no longer registered. Its v
 
 | Node | Main Inputs / Parameters | Outputs | Purpose / Notes |
 | --- | --- | --- | --- |
-| `SCAILPose2SCAIL2Condition` | `pose_video`: pose-rendered image sequence; not the raw driving video.<br>`pose_video_mask`: SCAIL-2 colored semantic mask sequence, normally from `SCAILPose2ColoredMask.pose_video_mask`.<br>`ref_image`: reference subject image.<br>`ref_mask`: SCAIL-2 reference semantic mask, normally `SCAILPose2ColoredMask.reference_image_mask` when no separate mask is supplied.<br>`mode`: `animation` or `replacement`.<br>`width`, `height`: final generation dimensions.<br>`num_frames`: expected pose/mask frame count.<br>`additional_ref_image`, `additional_ref_mask`: optional paired extra reference inputs. | `condition` (`SCAIL2_CONDITION`) | Builds the validated SCAIL-2 condition payload. `pose_video`, `pose_video_mask`, `width`, `height`, and `num_frames` must align. Long-video context length and overlap are downstream responsibilities. |
+| `SCAILPose2SCAIL2Condition` | `pose_video`: in `animation` mode, a pose-rendered image sequence; in `replacement` mode, the original `driving_video` sequence.<br>`pose_video_mask`: SCAIL-2 colored semantic mask sequence, normally from `SCAILPose2ColoredMask.pose_video_mask`.<br>`ref_image`: reference subject image.<br>`ref_mask`: SCAIL-2 reference semantic mask, normally `SCAILPose2ColoredMask.reference_image_mask` when no separate mask is supplied.<br>`mode`: `animation` or `replacement`.<br>`width`, `height`: final generation dimensions.<br>`num_frames`: expected pose/mask frame count.<br>`additional_ref_image`, `additional_ref_mask`: optional paired extra reference inputs. | `condition` (`SCAIL2_CONDITION`) | Builds the validated SCAIL-2 condition payload. `pose_video`, `pose_video_mask`, `width`, `height`, and `num_frames` must share the intended final canvas and frame count. Long-video context length and overlap are downstream responsibilities. |
 | `SCAILPose2PoseMaskGeometryAlign` | `pose_video`: rendered pose image sequence, usually from `RenderNLFPoses.image`.<br>`pose_video_mask`: driving semantic mask sequence from `SCAILPose2ColoredMask.pose_video_mask`. | `pose_video` (`IMAGE`), `summary` (`STRING`) | Scales and translates rendered pose foregrounds so their bbox matches the SAM3-derived driving mask bbox. It infers geometry from the actual image sizes. Use this for already-rendered pose images or manual repair workflows. |
 | `SCAILPose2ReplacementDenoiseMask` | `condition`: validated `SCAIL2_CONDITION`.<br>`pose_video_mask`: same raw colored semantic mask used by the Condition node.<br>`grow_pixels`: expands the subject denoise area before sampler use.<br>`blur_pixels`: softens the denoise mask edge. | `mask` (`MASK`), `summary` (`STRING`) | Builds a standard ComfyUI `MASK` for replacement/background-lock workflows. In `replacement` mode, subject pixels are `1.0` and background preserve pixels are `0.0`. In `animation` mode, it emits an all-`1.0` passthrough mask with SCAIL-Pose2 metadata that disables this repo's background-lock samples path in compatible downstream integrations. |
 
@@ -82,9 +82,9 @@ The adapter can report lossy v1 fallback metadata only when degradation is expli
 
 ### Pose Geometry
 
-Replacement mode expects `pose_video` and `pose_video_mask` to describe the same subject location and scale. When using this repo's `RenderNLFPoses`, connect `SCAILPose2ColoredMask.pose_video_mask` to its optional `pose_video_mask` input so the rendered pose output is aligned before it reaches `SCAILPose2SCAIL2Condition.pose_video`. If a pose sequence has already been rendered, use `SCAILPose2PoseMaskGeometryAlign` as a manual repair node before the Condition node.
+Animation mode uses rendered pose images. Those images may be half the final generation resolution, but they must be a coordinate-equivalent downsample of the final canvas. Half resolution does not mean a separate crop, a different projection, or reference-pose rescaling that changes the driving subject bbox.
 
-Rendered pose images may be half the final generation resolution, but they must be a coordinate-equivalent downsample of the final canvas. Half resolution does not mean a separate crop, a different projection, or reference-pose rescaling that changes the driving subject bbox.
+Replacement mode does not use rendered NLF skeletons as the canonical condition video. Use the original `driving_video` sequence for `SCAILPose2SCAIL2Condition.pose_video`, and use `SCAILPose2ColoredMask.pose_video_mask` only as the semantic replacement mask. `SCAILPose2PoseMaskGeometryAlign` remains a manual repair utility for already-rendered pose images, not a required replacement-mode step.
 
 ### Replacement Mode
 
@@ -96,6 +96,8 @@ Replacement workflows use two repo outputs:
 2. `SCAILPose2ReplacementDenoiseMask.mask` for hard background preservation.
 
 SCAIL-2 conditioning guides subject/reference behavior; it does not hard-freeze the original background by itself. Replacement background lock also requires the downstream video encode samples path to receive the original `driving_video` and this repo's replacement denoise mask, then pass those samples into the sampler. In `animation` mode, `SCAILPose2ReplacementDenoiseMask` emits an all-`1.0` passthrough mask with metadata that disables compatible downstream background-lock samples.
+
+For replacement, connect the same original `driving_video` sequence to `SCAILPose2SCAIL2Condition.pose_video`. Do not route `RenderNLFPoses` into that input for replacement mode; rendered pose skeletons cannot preserve the original subject proportions relative to the SAM3 mask.
 
 Compatible downstream integrations should preserve the replacement mask's SCAIL-Pose2 metadata so subject pixels remain `1.0` replace/denoise areas and background pixels remain `0.0` preserve areas after latent conversion.
 

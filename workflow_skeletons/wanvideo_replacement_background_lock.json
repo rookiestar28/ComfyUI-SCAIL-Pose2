@@ -10,7 +10,6 @@
       "role": "user_supplied_driving_video_tracks_models_prompts_and_vae",
       "outputs": {
         "driving_video": "IMAGE",
-        "nlf_poses": "NLFPRED",
         "ref_image": "IMAGE",
         "vae": "WANVAE"
       }
@@ -34,16 +33,9 @@
       ]
     },
     {
-      "id": "render_nlf_poses",
-      "class_type": "RenderNLFPoses",
-      "role": "render_pose_video_with_optional_mask_alignment",
-      "output_type": "IMAGE",
-      "output_name": "pose_video"
-    },
-    {
       "id": "scail2_condition",
       "class_type": "SCAILPose2SCAIL2Condition",
-      "role": "validated_replacement_condition_builder",
+      "role": "validated_replacement_condition_builder_driving_video_source",
       "mode": "replacement",
       "output_type": "SCAIL2_CONDITION",
       "input_order": ["pose_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"]
@@ -132,17 +124,7 @@
       "type": "IMAGE"
     },
     {
-      "from": ["workflow_inputs", "nlf_poses"],
-      "to": ["render_nlf_poses", "nlf_poses"],
-      "type": "NLFPRED"
-    },
-    {
-      "from": ["colored_masks", "pose_video_mask"],
-      "to": ["render_nlf_poses", "pose_video_mask"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["render_nlf_poses", "pose_video"],
+      "from": ["workflow_inputs", "driving_video"],
       "to": ["scail2_condition", "pose_video"],
       "type": "IMAGE"
     },
@@ -211,8 +193,9 @@
       "subject_replace_area": 1.0,
       "background_preserve_area": 0.0
     },
-    "pose_geometry_alignment_required": true,
-    "pose_geometry_alignment_node": "RenderNLFPoses.pose_video_mask",
+    "pose_geometry_alignment_required": false,
+    "condition_video_source": "workflow_inputs.driving_video",
+    "render_nlf_poses_required": false,
     "preview_contract": {
       "early_preview_background_may_be_noisy": true,
       "preview_is_final_preservation_evidence": false,

@@ -261,13 +261,13 @@ class WorkflowSkeletonTests(unittest.TestCase):
             {
                 "SCAILPose2ColoredMask",
                 "SCAILPose2SCAIL2Condition",
-                "RenderNLFPoses",
                 "SCAILPose2ReplacementDenoiseMask",
                 "WanVideoEncode",
                 "WanVideoAddSCAIL2ConditionEmbeds",
                 wanvideo_contracts.NODE_WAN_SAMPLER_V2,
             }.issubset(class_types)
         )
+        self.assertNotIn("RenderNLFPoses", class_types)
         self.assertIn(
             (
                 ("colored_masks", "pose_video_mask"),
@@ -278,23 +278,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                ("workflow_inputs", "nlf_poses"),
-                ("render_nlf_poses", "nlf_poses"),
-                "NLFPRED",
-            ),
-            links,
-        )
-        self.assertIn(
-            (
-                ("colored_masks", "pose_video_mask"),
-                ("render_nlf_poses", "pose_video_mask"),
-                "IMAGE",
-            ),
-            links,
-        )
-        self.assertIn(
-            (
-                ("render_nlf_poses", "pose_video"),
+                ("workflow_inputs", "driving_video"),
                 ("scail2_condition", "pose_video"),
                 "IMAGE",
             ),
@@ -348,11 +332,12 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertFalse(contract["conditioning_alone_hard_preserves_background"])
         self.assertEqual(1.0, contract["mask_polarity"]["subject_replace_area"])
         self.assertEqual(0.0, contract["mask_polarity"]["background_preserve_area"])
-        self.assertTrue(contract["pose_geometry_alignment_required"])
+        self.assertFalse(contract["pose_geometry_alignment_required"])
         self.assertEqual(
-            "RenderNLFPoses.pose_video_mask",
-            contract["pose_geometry_alignment_node"],
+            "workflow_inputs.driving_video",
+            contract["condition_video_source"],
         )
+        self.assertFalse(contract["render_nlf_poses_required"])
         preview = contract["preview_contract"]
         self.assertTrue(preview["early_preview_background_may_be_noisy"])
         self.assertFalse(preview["preview_is_final_preservation_evidence"])

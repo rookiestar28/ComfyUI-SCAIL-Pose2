@@ -173,45 +173,29 @@ class Scail2ConditionNodeTests(unittest.TestCase):
         self.assertEqual("extra_ref", condition.additional_references[0].image)
         self.assertEqual(2, condition.additional_references[0].mask_indices[0][0][0])
 
-    def test_replacement_mode_rejects_misaligned_pose_and_mask_geometry(self) -> None:
+    def test_replacement_mode_does_not_require_skeleton_mask_geometry(self) -> None:
         node = condition_node()
         pose = image_frame(8, 8)
         mask = image_frame(8, 8)
         paint_rect(pose, x0=0, y0=0, x1=2, y1=2, color=BLUE)
         paint_rect(mask, x0=4, y0=4, x1=8, y1=8, color=BLUE)
 
-        with self.assertRaisesRegex(ValueError, "Pose Mask Geometry Align"):
-            node.build(
-                pose_video=[pose],
-                pose_video_mask=[mask],
-                ref_image="ref",
-                ref_mask=frames_from_colors([WHITE], height=8, width=8),
-                mode="replacement",
-                width=8,
-                height=8,
-                num_frames=1,
-            )
+        condition, = node.build(
+            pose_video=[pose],
+            pose_video_mask=[mask],
+            ref_image="ref",
+            ref_mask=frames_from_colors([WHITE], height=8, width=8),
+            mode="replacement",
+            width=8,
+            height=8,
+            num_frames=1,
+        )
 
-    def test_replacement_mode_rejects_subtle_drift_that_old_thresholds_allowed(self) -> None:
-        node = condition_node()
-        pose = image_frame(8, 8)
-        mask = image_frame(8, 8)
-        paint_rect(pose, x0=1, y0=2, x1=5, y1=6, color=BLUE)
-        paint_rect(mask, x0=3, y0=2, x1=7, y1=6, color=BLUE)
+        self.assertEqual("replacement", condition.mode)
+        self.assertIs(condition.pose_video[0], pose)
+        self.assertEqual(3, condition.driving_mask_indices[0][4][4])
 
-        with self.assertRaisesRegex(ValueError, "min_iou\\(frame=0"):
-            node.build(
-                pose_video=[pose],
-                pose_video_mask=[mask],
-                ref_image="ref",
-                ref_mask=frames_from_colors([WHITE], height=8, width=8),
-                mode="replacement",
-                width=8,
-                height=8,
-                num_frames=1,
-            )
-
-    def test_replacement_mode_accepts_aligned_pose_and_mask_geometry(self) -> None:
+    def test_replacement_mode_preserves_mask_indices(self) -> None:
         node = condition_node()
         pose = image_frame(8, 8)
         mask = image_frame(8, 8)

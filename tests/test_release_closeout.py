@@ -118,6 +118,10 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertIn("lossy v1 fallback", readme)
         self.assertIn("Early sampler previews can still show", readme)
         self.assertIn("SCAIL-Pose2 metadata", readme)
+        self.assertIn("original `driving_video` sequence", readme)
+        self.assertIn("Do not route `RenderNLFPoses`", readme)
+        self.assertNotIn("not the raw driving video", readme)
+        self.assertNotIn("Replacement mode expects `pose_video` and `pose_video_mask`", readme)
         node_groups = readme.split("## Native SCAIL-2 Workflow Notes", maxsplit=1)[0]
         self.assertNotIn("WanVideoAddSCAIL2ConditionEmbeds", node_groups)
         self.assertNotIn("WanVideoEncode", node_groups)

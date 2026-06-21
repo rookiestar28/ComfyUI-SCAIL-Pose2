@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from typing import Any
 
 from .scail2.preprocessing import build_user_mask_condition
-from .scail2.geometry import diagnose_pose_mask_geometry, replacement_geometry_issues
 from .scail2.observability import (
     elapsed_ms,
     get_logger,
@@ -16,11 +15,6 @@ from .scail2.observability import (
 )
 
 LOGGER = get_logger(__name__)
-
-REPLACEMENT_GEOMETRY_MIN_IOU = 0.50
-REPLACEMENT_GEOMETRY_MAX_CENTER_DELTA_RATIO = 0.15
-REPLACEMENT_GEOMETRY_MIN_SIZE_RATIO = 0.50
-REPLACEMENT_GEOMETRY_MAX_SIZE_RATIO = 2.0
 
 
 def _as_list(value: Any) -> Any:
@@ -104,56 +98,6 @@ def _normalize_additional_inputs(
     return additional_images, additional_masks
 
 
-def _validate_replacement_geometry(
-    *,
-    mode: str,
-    pose_video: Any,
-    pose_video_mask: Any,
-    width: Any,
-    height: Any,
-) -> None:
-    if mode != "replacement":
-        return
-    if not (_is_tensor_like_image(pose_video) or not isinstance(pose_video, (str, bytes))):
-        return
-
-    try:
-        diagnostic = diagnose_pose_mask_geometry(
-            pose_video=pose_video,
-            pose_video_mask=pose_video_mask,
-            target_width=int(width),
-            target_height=int(height),
-        )
-    except (TypeError, ValueError, RuntimeError) as exc:
-        LOGGER.info("SCAIL-Pose2 replacement geometry diagnostic skipped: %s", exc)
-        return
-
-    issues = replacement_geometry_issues(
-        diagnostic,
-        target_width=int(width),
-        target_height=int(height),
-        min_iou=REPLACEMENT_GEOMETRY_MIN_IOU,
-        max_center_delta_ratio=REPLACEMENT_GEOMETRY_MAX_CENTER_DELTA_RATIO,
-        min_size_ratio=REPLACEMENT_GEOMETRY_MIN_SIZE_RATIO,
-        max_size_ratio=REPLACEMENT_GEOMETRY_MAX_SIZE_RATIO,
-    )
-
-    if issues:
-        summary = diagnostic.to_summary()
-        raise ValueError(
-            "replacement pose_video geometry is not aligned with pose_video_mask; "
-            "connect SCAIL-Pose2 Colored Mask pose_video_mask to "
-            "Render NLF Poses pose_video_mask, or run SCAIL-Pose2 Pose Mask "
-            "Geometry Align before SCAIL-Pose2 SCAIL-2 Condition. "
-            f"issues={[issue.format() for issue in issues]} summary={summary}"
-        )
-
-    LOGGER.info(
-        "SCAIL-Pose2 replacement geometry accepted: %s",
-        diagnostic.to_summary(),
-    )
-
-
 class SCAILPose2SCAIL2Condition:
     @classmethod
     def INPUT_TYPES(cls):
@@ -208,13 +152,12 @@ class SCAILPose2SCAIL2Condition:
             additional_ref_mask,
         )
         progress.update()
-        _validate_replacement_geometry(
-            mode=mode,
-            pose_video=pose_video,
-            pose_video_mask=pose_video_mask,
-            width=width,
-            height=height,
-        )
+        if mode == "replacement":
+            LOGGER.info(
+                "SCAIL-Pose2 replacement condition uses pose_video as the "
+                "driving/original video condition source; sparse NLF "
+                "skeleton-to-mask bbox validation is not applied."
+            )
         condition = build_user_mask_condition(
             mode=mode,
             ref_image=ref_image,
