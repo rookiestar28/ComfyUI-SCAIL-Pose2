@@ -63,6 +63,34 @@ class FrameGeometryComparison:
 
 
 @dataclass(frozen=True)
+class GeometryIssue:
+    code: str
+    frame_index: int | None
+    value: float | str
+    threshold: float | str
+
+    def to_summary(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "frame_index": self.frame_index,
+            "value": self.value,
+            "threshold": self.threshold,
+        }
+
+    def format(self) -> str:
+        value = f"{self.value:.4f}" if isinstance(self.value, float) else str(self.value)
+        threshold = (
+            f"{self.threshold:.4f}"
+            if isinstance(self.threshold, float)
+            else str(self.threshold)
+        )
+        return (
+            f"{self.code}(frame={self.frame_index}, "
+            f"value={value}, threshold={threshold})"
+        )
+
+
+@dataclass(frozen=True)
 class GeometryDiagnostic:
     status: str
     frame_count: int
@@ -84,6 +112,11 @@ class GeometryDiagnostic:
         return min(values) if values else None
 
     @property
+    def worst_iou_frame_index(self) -> int | None:
+        comparison = _comparison_with_min(self.comparisons, "iou")
+        return comparison.frame_index if comparison is not None else None
+
+    @property
     def mean_center_delta_px(self) -> float | None:
         return _mean_or_none(
             comparison.center_delta_px for comparison in self.comparisons
@@ -95,12 +128,37 @@ class GeometryDiagnostic:
         return max(values) if values else None
 
     @property
+    def worst_center_delta_frame_index(self) -> int | None:
+        comparison = _comparison_with_max(self.comparisons, "center_delta_px")
+        return comparison.frame_index if comparison is not None else None
+
+    @property
     def mean_width_ratio(self) -> float | None:
         return _mean_or_none(comparison.width_ratio for comparison in self.comparisons)
 
     @property
+    def min_width_ratio(self) -> float | None:
+        values = [comparison.width_ratio for comparison in self.comparisons]
+        return min(values) if values else None
+
+    @property
+    def max_width_ratio(self) -> float | None:
+        values = [comparison.width_ratio for comparison in self.comparisons]
+        return max(values) if values else None
+
+    @property
     def mean_height_ratio(self) -> float | None:
         return _mean_or_none(comparison.height_ratio for comparison in self.comparisons)
+
+    @property
+    def min_height_ratio(self) -> float | None:
+        values = [comparison.height_ratio for comparison in self.comparisons]
+        return min(values) if values else None
+
+    @property
+    def max_height_ratio(self) -> float | None:
+        values = [comparison.height_ratio for comparison in self.comparisons]
+        return max(values) if values else None
 
     def to_summary(self) -> dict[str, Any]:
         return {
@@ -114,11 +172,35 @@ class GeometryDiagnostic:
             "target_size": list(self.target_size),
             "mean_iou": self.mean_iou,
             "min_iou": self.min_iou,
+            "worst_iou_frame_index": self.worst_iou_frame_index,
             "mean_center_delta_px": self.mean_center_delta_px,
             "max_center_delta_px": self.max_center_delta_px,
+            "worst_center_delta_frame_index": self.worst_center_delta_frame_index,
             "mean_width_ratio": self.mean_width_ratio,
+            "min_width_ratio": self.min_width_ratio,
+            "max_width_ratio": self.max_width_ratio,
             "mean_height_ratio": self.mean_height_ratio,
+            "min_height_ratio": self.min_height_ratio,
+            "max_height_ratio": self.max_height_ratio,
         }
+
+
+def _comparison_with_min(
+    comparisons: tuple[FrameGeometryComparison, ...],
+    field: str,
+) -> FrameGeometryComparison | None:
+    if not comparisons:
+        return None
+    return min(comparisons, key=lambda comparison: float(getattr(comparison, field)))
+
+
+def _comparison_with_max(
+    comparisons: tuple[FrameGeometryComparison, ...],
+    field: str,
+) -> FrameGeometryComparison | None:
+    if not comparisons:
+        return None
+    return max(comparisons, key=lambda comparison: float(getattr(comparison, field)))
 
 
 def _mean_or_none(values: Any) -> float | None:
@@ -477,3 +559,98 @@ def diagnose_pose_mask_geometry(
         target_size=(int(target_height), int(target_width)),
         comparisons=tuple(comparisons),
     )
+
+
+def _worst_ratio_issue(
+    comparisons: tuple[FrameGeometryComparison, ...],
+    *,
+    field: str,
+    min_ratio: float,
+    max_ratio: float,
+) -> FrameGeometryComparison | None:
+    def distance(comparison: FrameGeometryComparison) -> float:
+        value = float(getattr(comparison, field))
+        if value < min_ratio:
+            return min_ratio - value
+        if value > max_ratio:
+            return value - max_ratio
+        return 0.0
+
+    candidates = [comparison for comparison in comparisons if distance(comparison) > 0.0]
+    if not candidates:
+        return None
+    return max(candidates, key=distance)
+
+
+def replacement_geometry_issues(
+    diagnostic: GeometryDiagnostic,
+    *,
+    target_width: int,
+    target_height: int,
+    min_iou: float,
+    max_center_delta_ratio: float,
+    min_size_ratio: float,
+    max_size_ratio: float,
+) -> tuple[GeometryIssue, ...]:
+    """Return replacement-mode geometry policy issues for a diagnostic."""
+
+    issues: list[GeometryIssue] = []
+    if diagnostic.status != "ok" or diagnostic.compared_frames <= 0:
+        issues.append(
+            GeometryIssue(
+                code="geometry_status",
+                frame_index=None,
+                value=diagnostic.status,
+                threshold="ok",
+            )
+        )
+        return tuple(issues)
+
+    worst_iou = _comparison_with_min(diagnostic.comparisons, "iou")
+    if worst_iou is not None and worst_iou.iou < min_iou:
+        issues.append(
+            GeometryIssue(
+                code="min_iou",
+                frame_index=worst_iou.frame_index,
+                value=worst_iou.iou,
+                threshold=min_iou,
+            )
+        )
+
+    target_diagonal = (int(target_width) * int(target_width) + int(target_height) * int(target_height)) ** 0.5
+    worst_center = _comparison_with_max(diagnostic.comparisons, "center_delta_px")
+    if worst_center is not None and target_diagonal > 0:
+        center_ratio = worst_center.center_delta_px / target_diagonal
+        if center_ratio > max_center_delta_ratio:
+            issues.append(
+                GeometryIssue(
+                    code="center_delta_ratio",
+                    frame_index=worst_center.frame_index,
+                    value=center_ratio,
+                    threshold=max_center_delta_ratio,
+                )
+            )
+
+    ratio_threshold = f"{min_size_ratio:.4f}..{max_size_ratio:.4f}"
+    for code, field in (
+        ("width_ratio_out_of_range", "width_ratio"),
+        ("height_ratio_out_of_range", "height_ratio"),
+    ):
+        worst_ratio = _worst_ratio_issue(
+            diagnostic.comparisons,
+            field=field,
+            min_ratio=min_size_ratio,
+            max_ratio=max_size_ratio,
+        )
+        if worst_ratio is None:
+            continue
+        issues.append(
+            GeometryIssue(
+                code=code,
+                frame_index=worst_ratio.frame_index,
+                value=float(getattr(worst_ratio, field)),
+                threshold=ratio_threshold,
+            )
+        )
+
+    return tuple(issues)

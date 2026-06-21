@@ -8,6 +8,7 @@ from scail2.geometry import (
     diagnose_pose_mask_geometry,
     frame_bboxes,
     frame_size,
+    replacement_geometry_issues,
 )
 
 
@@ -135,6 +136,38 @@ class Scail2GeometryTests(unittest.TestCase):
         self.assertGreater(diagnostic.mean_center_delta_px, 4.0)
         self.assertEqual(0.5, diagnostic.mean_width_ratio)
         self.assertEqual(0.5, diagnostic.mean_height_ratio)
+
+    def test_replacement_geometry_issues_identify_worst_frame(self) -> None:
+        aligned_pose = image_frame(8, 8)
+        aligned_mask = image_frame(8, 8)
+        drift_pose = image_frame(8, 8)
+        drift_mask = image_frame(8, 8)
+        paint_rect(aligned_pose, x0=2, y0=2, x1=6, y1=6, color=BLUE)
+        paint_rect(aligned_mask, x0=2, y0=2, x1=6, y1=6, color=BLUE)
+        paint_rect(drift_pose, x0=1, y0=2, x1=5, y1=6, color=BLUE)
+        paint_rect(drift_mask, x0=3, y0=2, x1=7, y1=6, color=BLUE)
+
+        diagnostic = diagnose_pose_mask_geometry(
+            pose_video=[aligned_pose, drift_pose],
+            pose_video_mask=[aligned_mask, drift_mask],
+            target_width=8,
+            target_height=8,
+        )
+        issues = replacement_geometry_issues(
+            diagnostic,
+            target_width=8,
+            target_height=8,
+            min_iou=0.50,
+            max_center_delta_ratio=0.15,
+            min_size_ratio=0.50,
+            max_size_ratio=2.0,
+        )
+
+        self.assertEqual(1, diagnostic.worst_iou_frame_index)
+        self.assertEqual(1, diagnostic.worst_center_delta_frame_index)
+        self.assertEqual(["min_iou", "center_delta_ratio"], [issue.code for issue in issues])
+        self.assertEqual(1, issues[0].frame_index)
+        self.assertIn("frame=1", issues[0].format())
 
 
 if __name__ == "__main__":
