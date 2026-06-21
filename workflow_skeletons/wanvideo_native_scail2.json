@@ -32,7 +32,11 @@
       "class_type": "SCAILPose2SCAIL2Condition",
       "role": "validated_scail2_condition_builder",
       "output_type": "SCAIL2_CONDITION",
-      "input_order": ["pose_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"]
+      "input_order": ["pose_video", "driving_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"],
+      "mode_video_sources": {
+        "animation": "pose_video",
+        "replacement": "driving_video"
+      }
     },
     {
       "id": "wanvideo_scail2_adapter",

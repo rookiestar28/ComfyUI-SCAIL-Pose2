@@ -65,6 +65,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(
             [
                 "pose_video",
+                "driving_video",
                 "pose_video_mask",
                 "ref_image",
                 "ref_mask",
@@ -76,6 +77,18 @@ class WorkflowSkeletonTests(unittest.TestCase):
                 for node in data["nodes"]
                 if node["id"] == "scail2_condition"
             )["input_order"],
+        )
+        condition_node = next(
+            node
+            for node in data["nodes"]
+            if node["id"] == "scail2_condition"
+        )
+        self.assertEqual(
+            {
+                "animation": "pose_video",
+                "replacement": "driving_video",
+            },
+            condition_node["mode_video_sources"],
         )
         self.assertTrue(
             {
@@ -279,7 +292,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertIn(
             (
                 ("workflow_inputs", "driving_video"),
-                ("scail2_condition", "pose_video"),
+                ("scail2_condition", "driving_video"),
                 "IMAGE",
             ),
             links,
@@ -334,7 +347,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(0.0, contract["mask_polarity"]["background_preserve_area"])
         self.assertFalse(contract["pose_geometry_alignment_required"])
         self.assertEqual(
-            "workflow_inputs.driving_video",
+            "workflow_inputs.driving_video -> scail2_condition.driving_video",
             contract["condition_video_source"],
         )
         self.assertFalse(contract["render_nlf_poses_required"])

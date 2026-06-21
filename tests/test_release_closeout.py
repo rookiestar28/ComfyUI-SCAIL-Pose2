@@ -120,8 +120,12 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertIn("SCAIL-Pose2 metadata", readme)
         self.assertIn("original `driving_video` sequence", readme)
         self.assertIn("Do not route `RenderNLFPoses`", readme)
+        self.assertIn("Both `pose_video` and `driving_video` can stay wired", readme)
+        self.assertIn("automatically uses `pose_video` for `animation` mode", readme)
+        self.assertIn("driving_video` for `replacement` mode", readme)
         self.assertNotIn("not the raw driving video", readme)
         self.assertNotIn("Replacement mode expects `pose_video` and `pose_video_mask`", readme)
+        self.assertNotIn("SCAILPose2SCAIL2Condition.pose_video`. Do not route", readme)
         node_groups = readme.split("## Native SCAIL-2 Workflow Notes", maxsplit=1)[0]
         self.assertNotIn("WanVideoAddSCAIL2ConditionEmbeds", node_groups)
         self.assertNotIn("WanVideoEncode", node_groups)

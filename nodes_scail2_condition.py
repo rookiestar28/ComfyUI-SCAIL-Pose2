@@ -98,12 +98,32 @@ def _normalize_additional_inputs(
     return additional_images, additional_masks
 
 
+def _select_mode_video_source(
+    *,
+    mode: str,
+    pose_video: Any,
+    driving_video: Any | None,
+) -> Any:
+    if mode == "replacement":
+        if driving_video is None:
+            raise ValueError(
+                "driving_video is required when mode is replacement; connect the "
+                "original driving video to SCAIL-Pose2 SCAIL-2 Condition.driving_video"
+            )
+        return driving_video
+    if mode == "animation" and pose_video is None:
+        raise ValueError(
+            "pose_video is required when mode is animation; connect rendered poses "
+            "to SCAIL-Pose2 SCAIL-2 Condition.pose_video"
+        )
+    return pose_video
+
+
 class SCAILPose2SCAIL2Condition:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "pose_video": ("IMAGE",),
                 "pose_video_mask": ("IMAGE",),
                 "ref_image": ("IMAGE",),
                 "ref_mask": ("IMAGE",),
@@ -113,6 +133,8 @@ class SCAILPose2SCAIL2Condition:
                 "num_frames": ("INT", {"default": 81, "min": 1, "step": 1}),
             },
             "optional": {
+                "pose_video": ("IMAGE",),
+                "driving_video": ("IMAGE",),
                 "additional_ref_image": ("IMAGE",),
                 "additional_ref_mask": ("IMAGE",),
             },
@@ -126,7 +148,6 @@ class SCAILPose2SCAIL2Condition:
 
     def build(
         self,
-        pose_video,
         pose_video_mask,
         ref_image,
         ref_mask,
@@ -134,14 +155,17 @@ class SCAILPose2SCAIL2Condition:
         width,
         height,
         num_frames,
+        pose_video=None,
+        driving_video=None,
         additional_ref_image=None,
         additional_ref_mask=None,
     ):
         progress = make_progress(3)
         started_ms = perf_counter_ms()
         LOGGER.info(
-            "SCAIL-Pose2 SCAIL-2 Condition start: pose=%s pose_mask=%s ref=%s ref_mask=%s",
+            "SCAIL-Pose2 SCAIL-2 Condition start: pose=%s driving=%s pose_mask=%s ref=%s ref_mask=%s",
             safe_value_summary(pose_video),
+            safe_value_summary(driving_video),
             safe_value_summary(pose_video_mask),
             safe_value_summary(ref_image),
             safe_value_summary(ref_mask),
@@ -152,17 +176,22 @@ class SCAILPose2SCAIL2Condition:
             additional_ref_mask,
         )
         progress.update()
+        effective_pose_video = _select_mode_video_source(
+            mode=mode,
+            pose_video=pose_video,
+            driving_video=driving_video,
+        )
         if mode == "replacement":
             LOGGER.info(
-                "SCAIL-Pose2 replacement condition uses pose_video as the "
-                "driving/original video condition source; sparse NLF "
-                "skeleton-to-mask bbox validation is not applied."
+                "SCAIL-Pose2 replacement condition uses driving_video as the "
+                "condition video source; sparse NLF skeleton-to-mask bbox "
+                "validation is not applied."
             )
         condition = build_user_mask_condition(
             mode=mode,
             ref_image=ref_image,
             ref_mask_frames=_normalize_image_frames(ref_mask, name="ref_mask"),
-            pose_video=pose_video,
+            pose_video=effective_pose_video,
             pose_frame_count=num_frames,
             driving_mask_frames=_normalize_image_frames(
                 pose_video_mask,

@@ -38,7 +38,11 @@
       "role": "validated_replacement_condition_builder_driving_video_source",
       "mode": "replacement",
       "output_type": "SCAIL2_CONDITION",
-      "input_order": ["pose_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"]
+      "input_order": ["pose_video", "driving_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"],
+      "mode_video_sources": {
+        "animation": "pose_video",
+        "replacement": "driving_video"
+      }
     },
     {
       "id": "replacement_denoise_mask",
@@ -125,7 +129,7 @@
     },
     {
       "from": ["workflow_inputs", "driving_video"],
-      "to": ["scail2_condition", "pose_video"],
+      "to": ["scail2_condition", "driving_video"],
       "type": "IMAGE"
     },
     {
@@ -194,7 +198,7 @@
       "background_preserve_area": 0.0
     },
     "pose_geometry_alignment_required": false,
-    "condition_video_source": "workflow_inputs.driving_video",
+    "condition_video_source": "workflow_inputs.driving_video -> scail2_condition.driving_video",
     "render_nlf_poses_required": false,
     "preview_contract": {
       "early_preview_background_may_be_noisy": true,

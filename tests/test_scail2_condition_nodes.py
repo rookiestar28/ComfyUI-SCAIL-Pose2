@@ -92,7 +92,6 @@ class Scail2ConditionNodeTests(unittest.TestCase):
         input_types = node_cls.INPUT_TYPES()
         self.assertEqual(
             (
-                "pose_video",
                 "pose_video_mask",
                 "ref_image",
                 "ref_mask",
@@ -108,26 +107,43 @@ class Scail2ConditionNodeTests(unittest.TestCase):
             input_types["required"]["mode"][0],
         )
         self.assertEqual(
-            ("additional_ref_image", "additional_ref_mask"),
+            ("pose_video", "driving_video", "additional_ref_image", "additional_ref_mask"),
             tuple(input_types["optional"]),
         )
 
     def test_condition_node_builds_all_modes_and_preserves_mask_indices(self) -> None:
         node = condition_node()
         driving_mask = frames_from_colors([RED, GREEN, RED, GREEN, RED])
+        pose_source = object()
+        driving_source = object()
 
-        for mode in ("animation", "replacement"):
-            condition, = node.build(
-                pose_video="pose",
-                pose_video_mask=driving_mask,
-                ref_image="ref",
-                ref_mask=frames_from_colors([WHITE]),
-                mode=mode,
-                width=1,
-                height=1,
-                num_frames=5,
-            )
+        animation, = node.build(
+            pose_video=pose_source,
+            driving_video=driving_source,
+            pose_video_mask=driving_mask,
+            ref_image="ref",
+            ref_mask=frames_from_colors([WHITE]),
+            mode="animation",
+            width=1,
+            height=1,
+            num_frames=5,
+        )
+        replacement, = node.build(
+            pose_video=pose_source,
+            driving_video=driving_source,
+            pose_video_mask=driving_mask,
+            ref_image="ref",
+            ref_mask=frames_from_colors([WHITE]),
+            mode="replacement",
+            width=1,
+            height=1,
+            num_frames=5,
+        )
 
+        self.assertIs(animation.pose_video, pose_source)
+        self.assertIs(replacement.pose_video, driving_source)
+
+        for mode, condition in (("animation", animation), ("replacement", replacement)):
             self.assertEqual(TYPE_SCAIL2_CONDITION, condition.type_name)
             self.assertEqual(mode, condition.mode)
             self.assertEqual(mode == "replacement", condition.replace_flag)
@@ -137,6 +153,36 @@ class Scail2ConditionNodeTests(unittest.TestCase):
             self.assertEqual("comfy_node:SCAILPose2SCAIL2Condition", condition.source_kind)
             with self.assertRaises(FrozenInstanceError):
                 condition.mode = "animation"
+
+    def test_replacement_mode_requires_driving_video(self) -> None:
+        node = condition_node()
+
+        with self.assertRaisesRegex(ValueError, "driving_video is required"):
+            node.build(
+                pose_video="pose",
+                pose_video_mask=frames_from_colors([RED] * 5),
+                ref_image="ref",
+                ref_mask=frames_from_colors([WHITE]),
+                mode="replacement",
+                width=1,
+                height=1,
+                num_frames=5,
+            )
+
+    def test_animation_mode_requires_pose_video(self) -> None:
+        node = condition_node()
+
+        with self.assertRaisesRegex(ValueError, "pose_video is required"):
+            node.build(
+                driving_video="driving",
+                pose_video_mask=frames_from_colors([RED] * 5),
+                ref_image="ref",
+                ref_mask=frames_from_colors([WHITE]),
+                mode="animation",
+                width=1,
+                height=1,
+                num_frames=5,
+            )
 
     def test_condition_node_rejects_pose_driven_as_independent_mode(self) -> None:
         node = condition_node()
@@ -179,9 +225,11 @@ class Scail2ConditionNodeTests(unittest.TestCase):
         mask = image_frame(8, 8)
         paint_rect(pose, x0=0, y0=0, x1=2, y1=2, color=BLUE)
         paint_rect(mask, x0=4, y0=4, x1=8, y1=8, color=BLUE)
+        driving = image_frame(8, 8, fill=WHITE)
 
         condition, = node.build(
             pose_video=[pose],
+            driving_video=[driving],
             pose_video_mask=[mask],
             ref_image="ref",
             ref_mask=frames_from_colors([WHITE], height=8, width=8),
@@ -192,7 +240,7 @@ class Scail2ConditionNodeTests(unittest.TestCase):
         )
 
         self.assertEqual("replacement", condition.mode)
-        self.assertIs(condition.pose_video[0], pose)
+        self.assertIs(condition.pose_video[0], driving)
         self.assertEqual(3, condition.driving_mask_indices[0][4][4])
 
     def test_replacement_mode_preserves_mask_indices(self) -> None:
@@ -201,9 +249,11 @@ class Scail2ConditionNodeTests(unittest.TestCase):
         mask = image_frame(8, 8)
         paint_rect(pose, x0=4, y0=4, x1=8, y1=8, color=BLUE)
         paint_rect(mask, x0=4, y0=4, x1=8, y1=8, color=BLUE)
+        driving = image_frame(8, 8, fill=WHITE)
 
         condition, = node.build(
             pose_video=[pose],
+            driving_video=[driving],
             pose_video_mask=[mask],
             ref_image="ref",
             ref_mask=frames_from_colors([WHITE], height=8, width=8),
