@@ -68,9 +68,13 @@ The older standalone v1 image adapter public node is no longer registered. Its v
 
 This README documents this repo's SCAIL-Pose2 nodes only. Downstream wrapper nodes are not listed as repo nodes in `Node Groups`.
 
-Use `SCAILPose2ColoredMask.pose_video_mask` as `SCAILPose2SCAIL2Condition.pose_video_mask`. If no separate reference mask is available, use `SCAILPose2ColoredMask.reference_image_mask` as `SCAILPose2SCAIL2Condition.ref_mask`.
+Use `SAM3 Video Track.track_data` as the SAM3 source for `SCAILPose2ColoredMask.driving_track_data`. Use `SCAILPose2ColoredMask.pose_video_mask` as `SCAILPose2SCAIL2Condition.pose_video_mask`. Colored Mask `ref_mask` is optional; if no separate reference mask is available, use `SCAILPose2ColoredMask.reference_image_mask` as `SCAILPose2SCAIL2Condition.ref_mask`.
 
-Keep `SCAILPose2SCAIL2Condition.width` and `height` at the final generation size. The adapter handles the required reference-mask and driving-mask packing internally.
+Keep `SCAILPose2SCAIL2Condition.width` and `height` at the final generation size. Do not halve them to match pose latents; downstream integrations may encode pose inputs at the pose-control latent size internally. The adapter handles the required reference-mask and driving-mask packing internally.
+
+`SCAILPose2WanVideoSCAIL2Adapter.condition` is the SCAIL-2 adapter payload intended for compatible downstream SCAIL-2 embedding consumers such as `WanVideoAddSCAIL2ConditionEmbeds`. Context windows and overlap remain downstream generation-wrapper responsibilities, commonly configured through WanVideo Context Options. SCAIL-2 clean-history continuation is not claimed by this repo.
+
+The adapter can report lossy v1 fallback metadata only when degradation is explicitly requested and allowed. Treat that path as compatibility metadata, not full SCAIL-2 parity.
 
 ### Replacement Mode
 
@@ -85,8 +89,9 @@ SCAIL-2 conditioning guides subject/reference behavior; it does not hard-freeze 
 
 - Colored Mask previews show colored subjects on black background because they are semantic masks, not original video frames.
 - Reference identity depends on `ref_image`, `ref_mask` / `reference_image_mask`, and the downstream reference embedding path.
-- Long-running nodes log safe metadata summaries such as shape, dtype, frame count, object count, and elapsed time.
+- Long-running nodes log safe progress/log summaries such as shape, dtype, frame count, object count, and elapsed time.
 - The Condition node does not expose SCAIL-2 segment or continuation controls; downstream context windows are owned by the generation wrapper.
+- This repo's restored NLF pose loader returns `NLF_MODEL`; the WanVideoWrapper NLF family may expose `NLFMODEL` through nodes such as `(Download)Load NLF Model`. Those model contracts are not directly wire-compatible: this repo expects local NLF `.safetensors` assets, while wrapper-side NLF loaders may manage `.torchscript` assets and downloads.
 
 ## License
 

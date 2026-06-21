@@ -4,6 +4,7 @@ __all__ = [
     "condition",
     "colored_masks",
     "generation_policy",
+    "geometry",
     "masks",
     "preprocessing",
     "replacement_mask",
