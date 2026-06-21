@@ -261,6 +261,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
             {
                 "SCAILPose2ColoredMask",
                 "SCAILPose2SCAIL2Condition",
+                "SCAILPose2PoseMaskGeometryAlign",
                 "SCAILPose2ReplacementDenoiseMask",
                 "WanVideoEncode",
                 "WanVideoAddSCAIL2ConditionEmbeds",
@@ -271,6 +272,30 @@ class WorkflowSkeletonTests(unittest.TestCase):
             (
                 ("colored_masks", "pose_video_mask"),
                 ("replacement_denoise_mask", "pose_video_mask"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("workflow_inputs", "rendered_pose_video"),
+                ("pose_mask_geometry_align", "pose_video"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("colored_masks", "pose_video_mask"),
+                ("pose_mask_geometry_align", "pose_video_mask"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("pose_mask_geometry_align", "pose_video"),
+                ("scail2_condition", "pose_video"),
                 "IMAGE",
             ),
             links,
@@ -323,6 +348,11 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertFalse(contract["conditioning_alone_hard_preserves_background"])
         self.assertEqual(1.0, contract["mask_polarity"]["subject_replace_area"])
         self.assertEqual(0.0, contract["mask_polarity"]["background_preserve_area"])
+        self.assertTrue(contract["pose_geometry_alignment_required"])
+        self.assertEqual(
+            "SCAILPose2PoseMaskGeometryAlign",
+            contract["pose_geometry_alignment_node"],
+        )
 
     def test_wananimate_fallback_skeleton_requires_explicit_degradation(self) -> None:
         data = load_skeleton("wananimate_fallback.json")

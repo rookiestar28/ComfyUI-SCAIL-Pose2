@@ -12,6 +12,7 @@ ComfyUI-SCAIL-Pose2 is a ComfyUI custom node package for SCAIL-2 pose and mask p
   - [SCAIL-Pose2 / SCAIL-2](#scail-pose2--scail-2)
 - [Native SCAIL-2 Workflow Notes](#native-scail-2-workflow-notes)
   - [Data Contract](#data-contract)
+  - [Pose Geometry](#pose-geometry)
   - [Replacement Mode](#replacement-mode)
   - [Notes](#notes)
 - [License](#license)
@@ -60,6 +61,7 @@ The older standalone v1 image adapter public node is no longer registered. Its v
 | Node | Main Inputs / Parameters | Outputs | Purpose / Notes |
 | --- | --- | --- | --- |
 | `SCAILPose2SCAIL2Condition` | `pose_video`: pose-rendered image sequence; not the raw driving video.<br>`pose_video_mask`: SCAIL-2 colored semantic mask sequence, normally from `SCAILPose2ColoredMask.pose_video_mask`.<br>`ref_image`: reference subject image.<br>`ref_mask`: SCAIL-2 reference semantic mask, normally `SCAILPose2ColoredMask.reference_image_mask` when no separate mask is supplied.<br>`mode`: `animation` or `replacement`.<br>`width`, `height`: final generation dimensions.<br>`num_frames`: expected pose/mask frame count.<br>`additional_ref_image`, `additional_ref_mask`: optional paired extra reference inputs. | `condition` (`SCAIL2_CONDITION`) | Builds the validated SCAIL-2 condition payload. `pose_video`, `pose_video_mask`, `width`, `height`, and `num_frames` must align. Long-video context length and overlap are downstream responsibilities. |
+| `SCAILPose2PoseMaskGeometryAlign` | `pose_video`: rendered pose image sequence, usually from `RenderNLFPoses.image`.<br>`pose_video_mask`: driving semantic mask sequence from `SCAILPose2ColoredMask.pose_video_mask`.<br>`width`, `height`: final generation dimensions used for geometry comparison. | `pose_video` (`IMAGE`), `summary` (`STRING`) | Scales and translates rendered pose foregrounds so their bbox matches the SAM3-derived driving mask bbox. Use this before the Condition node in replacement workflows when NLF render scale does not match the original subject. |
 | `SCAILPose2ReplacementDenoiseMask` | `condition`: validated `SCAIL2_CONDITION`.<br>`pose_video_mask`: same raw colored semantic mask used by the Condition node.<br>`grow_pixels`: expands the subject denoise area before sampler use.<br>`blur_pixels`: softens the denoise mask edge. | `mask` (`MASK`), `summary` (`STRING`) | Builds a standard ComfyUI `MASK` for replacement/background-lock workflows. In `replacement` mode, subject pixels are `1.0` and background preserve pixels are `0.0`. In `animation` mode, it emits an all-`1.0` passthrough mask with SCAIL-Pose2 metadata that disables this repo's background-lock samples path in compatible downstream integrations. |
 
 ## Native SCAIL-2 Workflow Notes
@@ -75,6 +77,12 @@ Keep `SCAILPose2SCAIL2Condition.width` and `height` at the final generation size
 `SCAILPose2WanVideoSCAIL2Adapter.condition` is the SCAIL-2 adapter payload intended for compatible downstream SCAIL-2 embedding consumers such as `WanVideoAddSCAIL2ConditionEmbeds`. Context windows and overlap remain downstream generation-wrapper responsibilities, commonly configured through WanVideo Context Options. SCAIL-2 clean-history continuation is not claimed by this repo.
 
 The adapter can report lossy v1 fallback metadata only when degradation is explicitly requested and allowed. Treat that path as compatibility metadata, not full SCAIL-2 parity.
+
+### Pose Geometry
+
+Replacement mode expects `pose_video` and `pose_video_mask` to describe the same subject location and scale. If the NLF-rendered skeleton does not overlay the SAM3 mask when visually compared, insert `SCAILPose2PoseMaskGeometryAlign` before `SCAILPose2SCAIL2Condition.pose_video`.
+
+Rendered pose images may be half the final generation resolution, but they must be a coordinate-equivalent downsample of the final canvas. Half resolution does not mean a separate crop, a different projection, or reference-pose rescaling that changes the driving subject bbox.
 
 ### Replacement Mode
 

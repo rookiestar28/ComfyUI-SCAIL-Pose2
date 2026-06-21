@@ -10,6 +10,7 @@
       "role": "user_supplied_driving_video_tracks_models_prompts_and_vae",
       "outputs": {
         "driving_video": "IMAGE",
+        "rendered_pose_video": "IMAGE",
         "ref_image": "IMAGE",
         "vae": "WANVAE"
       }
@@ -39,6 +40,13 @@
       "mode": "replacement",
       "output_type": "SCAIL2_CONDITION",
       "input_order": ["pose_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"]
+    },
+    {
+      "id": "pose_mask_geometry_align",
+      "class_type": "SCAILPose2PoseMaskGeometryAlign",
+      "role": "align_rendered_pose_to_driving_mask_bbox",
+      "output_type": "IMAGE",
+      "output_name": "pose_video"
     },
     {
       "id": "replacement_denoise_mask",
@@ -124,6 +132,21 @@
       "type": "IMAGE"
     },
     {
+      "from": ["workflow_inputs", "rendered_pose_video"],
+      "to": ["pose_mask_geometry_align", "pose_video"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["colored_masks", "pose_video_mask"],
+      "to": ["pose_mask_geometry_align", "pose_video_mask"],
+      "type": "IMAGE"
+    },
+    {
+      "from": ["pose_mask_geometry_align", "pose_video"],
+      "to": ["scail2_condition", "pose_video"],
+      "type": "IMAGE"
+    },
+    {
       "from": ["colored_masks", "reference_image_mask"],
       "to": ["scail2_condition", "ref_mask"],
       "type": "IMAGE"
@@ -187,7 +210,9 @@
     "mask_polarity": {
       "subject_replace_area": 1.0,
       "background_preserve_area": 0.0
-    }
+    },
+    "pose_geometry_alignment_required": true,
+    "pose_geometry_alignment_node": "SCAILPose2PoseMaskGeometryAlign"
   },
   "warnings": [
     "This static skeleton documents replacement background-lock wiring and does not execute generation.",
