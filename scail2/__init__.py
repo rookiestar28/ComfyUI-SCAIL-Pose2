@@ -9,6 +9,7 @@ __all__ = [
     "pose_alignment",
     "preprocessing",
     "replacement_mask",
+    "replacement_preview",
     "sam3_preprocessing",
     "wanvideo_adapter",
     "wananimate_fallback",
