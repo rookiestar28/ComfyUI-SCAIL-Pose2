@@ -10,6 +10,7 @@ from .scail2.observability import (
     safe_value_summary,
 )
 from .scail2.replacement_mask import build_replacement_denoise_mask
+from .scail2.replacement_presets import MASK_PRESETS
 
 LOGGER = get_logger(__name__)
 
@@ -21,6 +22,7 @@ class SCAILPose2ReplacementDenoiseMask:
             "required": {
                 "condition": ("SCAIL2_CONDITION",),
                 "pose_video_mask": ("IMAGE",),
+                "mask_preset": (list(MASK_PRESETS), {"default": "custom"}),
                 "grow_pixels": ("INT", {"default": 8, "min": 0, "max": 512, "step": 1}),
                 "blur_pixels": ("INT", {"default": 0, "min": 0, "max": 512, "step": 1}),
             },
@@ -40,15 +42,17 @@ class SCAILPose2ReplacementDenoiseMask:
         self,
         condition,
         pose_video_mask,
+        mask_preset="custom",
         grow_pixels=8,
         blur_pixels=0,
     ):
         progress = make_progress(2)
         started_ms = perf_counter_ms()
         LOGGER.info(
-            "SCAIL-Pose2 Replacement Denoise Mask start: condition=%s pose_video_mask=%s grow=%s blur=%s",
+            "SCAIL-Pose2 Replacement Denoise Mask start: condition=%s pose_video_mask=%s preset=%s grow=%s blur=%s",
             safe_value_summary(condition),
             safe_value_summary(pose_video_mask),
+            str(mask_preset),
             int(grow_pixels),
             int(blur_pixels),
         )
@@ -56,6 +60,7 @@ class SCAILPose2ReplacementDenoiseMask:
         result = build_replacement_denoise_mask(
             condition=condition,
             pose_video_mask=pose_video_mask,
+            mask_preset=mask_preset,
             grow_pixels=grow_pixels,
             blur_pixels=blur_pixels,
             strict_replacement_mode=False,

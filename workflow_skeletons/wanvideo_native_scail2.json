@@ -59,7 +59,13 @@
       "role": "wrapper_native_scail2_embeds",
       "input_type": "SCAIL2_WANVIDEO_PAYLOAD",
       "output_type": "WANVIDIMAGE_EMBEDS",
-      "embeds_key": "scail2_embeds"
+      "embeds_key": "scail2_embeds",
+      "strength_defaults": {
+        "ref_image_strength": 1.0,
+        "ref_mask_strength": 1.0,
+        "condition_video_strength": 1.0,
+        "driving_mask_strength": 1.0
+      }
     },
     {
       "id": "wan_context_options",
@@ -138,6 +144,13 @@
     "consumer_input_type": "SCAIL2_WANVIDEO_PAYLOAD",
     "output_type": "WANVIDIMAGE_EMBEDS",
     "embeds_key": "scail2_embeds",
+    "strength_defaults_are_backward_compatible": true,
+    "strength_controls": [
+      "ref_image_strength",
+      "ref_mask_strength",
+      "condition_video_strength",
+      "driving_mask_strength"
+    ],
     "legacy_embeds_key": "scail_embeds",
     "simultaneous_legacy_and_native": "reject"
   },

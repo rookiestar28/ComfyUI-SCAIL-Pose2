@@ -290,6 +290,47 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
         self.assertEqual(1.0, float(blurred.mask[0, 1, 1].item()))
         self.assertAlmostEqual(4.0 / 9.0, float(blurred.mask[0, 0, 0].item()))
 
+    def test_mask_preset_overrides_numeric_controls(self) -> None:
+        pose_mask = []
+        for _frame in range(5):
+            pose_mask.append(
+                [
+                    [BLACK, BLACK, BLACK, BLACK, BLACK],
+                    [BLACK, BLACK, BLACK, BLACK, BLACK],
+                    [BLACK, BLACK, BLUE, BLACK, BLACK],
+                    [BLACK, BLACK, BLACK, BLACK, BLACK],
+                    [BLACK, BLACK, BLACK, BLACK, BLACK],
+                ]
+            )
+        condition = replacement_condition(
+            pose_mask=pose_mask,
+            width=5,
+            height=5,
+            frames=5,
+        )
+
+        custom = build_replacement_denoise_mask(
+            condition=condition,
+            pose_video_mask=pose_mask,
+            mask_preset="custom",
+            grow_pixels=0,
+            blur_pixels=0,
+        )
+        tight = build_replacement_denoise_mask(
+            condition=condition,
+            pose_video_mask=pose_mask,
+            mask_preset="tight",
+            grow_pixels=0,
+            blur_pixels=0,
+        )
+
+        self.assertAlmostEqual(1.0 / 25.0, custom.subject_ratio)
+        self.assertGreater(tight.subject_ratio, custom.subject_ratio)
+        self.assertEqual("tight", tight.mask_preset)
+        self.assertIn("mask_preset=tight", tight.summary)
+        self.assertIn("edge_contact_ratio=", tight.summary)
+        self.assertIsNotNone(tight.diagnostics)
+
     def test_background_lock_polarity_preserves_background_in_samples_path(self) -> None:
         import torch
 
@@ -356,6 +397,7 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
             (
                 "condition",
                 "pose_video_mask",
+                "mask_preset",
                 "grow_pixels",
                 "blur_pixels",
             ),

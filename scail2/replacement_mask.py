@@ -13,6 +13,12 @@ from .masks import (
     semantic_mask_indices,
     semantic_mask_indices_tensor_raw,
 )
+from .replacement_diagnostics import (
+    MaskDiagnostics,
+    diagnostics_summary_fragment,
+    mask_diagnostics,
+)
+from .replacement_presets import resolve_mask_preset
 
 
 TENSOR_FAST_PATH_CHUNK_FRAMES = 16
@@ -31,6 +37,8 @@ class ReplacementDenoiseMaskResult:
     height: int
     width: int
     subject_ratio: float
+    diagnostics: MaskDiagnostics | None = None
+    mask_preset: str = "custom"
     fast_path: str = "semantic_indices"
     input_device: str = "unknown"
     work_device: str = "cpu"
@@ -92,18 +100,6 @@ def _validate_condition(condition: Any) -> SCAIL2Condition:
     if condition.type_name != TYPE_SCAIL2_CONDITION:
         raise ValueError("condition must be a SCAIL2_CONDITION payload")
     return condition
-
-
-def _positive_or_zero_int(name: str, value: Any) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be a non-negative integer")
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a non-negative integer") from exc
-    if parsed < 0:
-        raise ValueError(f"{name} must be a non-negative integer")
-    return parsed
 
 
 def _indices_to_subject_tensor(indices: Any) -> Any:
@@ -190,6 +186,7 @@ def _build_tensor_subject_mask(
     pose_video_mask: Any,
     *,
     condition: SCAIL2Condition,
+    mask_preset: str,
     grow_pixels: int,
     blur_pixels: int,
     invert: bool,
@@ -231,12 +228,15 @@ def _build_tensor_subject_mask(
         role=SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE,
     )
     subject_ratio = float(mask.mean().item())
+    diagnostics = mask_diagnostics(mask)
     summary = _replacement_summary(
         condition=condition,
         frame_count=frames,
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        mask_preset=mask_preset,
+        diagnostics=diagnostics,
         grow_pixels=grow_pixels,
         blur_pixels=blur_pixels,
         invert=invert,
@@ -252,6 +252,8 @@ def _build_tensor_subject_mask(
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        diagnostics=diagnostics,
+        mask_preset=mask_preset,
         fast_path="tensor_subject_mask",
         input_device=input_device,
         work_device=str(selected_device),
@@ -310,6 +312,8 @@ def _replacement_summary(
     height: int,
     width: int,
     subject_ratio: float,
+    mask_preset: str,
+    diagnostics: MaskDiagnostics | None,
     grow_pixels: int,
     blur_pixels: int,
     invert: bool,
@@ -324,6 +328,7 @@ def _replacement_summary(
         f"frames={frame_count} "
         f"size={width}x{height} "
         f"subject_ratio={subject_ratio:.6f} "
+        f"mask_preset={mask_preset} "
         f"grow_pixels={grow_pixels} "
         f"blur_pixels={blur_pixels} "
         f"invert={bool(invert)} "
@@ -331,12 +336,18 @@ def _replacement_summary(
         f"input_device={input_device} "
         f"work_device={work_device} "
         f"output_device={output_device}"
+        + (
+            f" {diagnostics_summary_fragment(diagnostics)}"
+            if diagnostics is not None
+            else ""
+        )
     )
 
 
 def _build_mode_passthrough_mask(
     condition: SCAIL2Condition,
     *,
+    mask_preset: str,
     grow_pixels: int,
     blur_pixels: int,
 ) -> ReplacementDenoiseMaskResult:
@@ -356,6 +367,7 @@ def _build_mode_passthrough_mask(
         role=SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE,
     )
     subject_ratio = float(mask.mean().item())
+    diagnostics = mask_diagnostics(mask)
     summary = (
         _replacement_summary(
             condition=condition,
@@ -363,6 +375,8 @@ def _build_mode_passthrough_mask(
             height=height,
             width=width,
             subject_ratio=subject_ratio,
+            mask_preset=mask_preset,
+            diagnostics=diagnostics,
             grow_pixels=grow_pixels,
             blur_pixels=blur_pixels,
             invert=False,
@@ -380,6 +394,8 @@ def _build_mode_passthrough_mask(
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        diagnostics=diagnostics,
+        mask_preset=mask_preset,
         fast_path="mode_passthrough",
         input_device="condition",
         work_device=str(mask.device),
@@ -391,6 +407,7 @@ def build_replacement_denoise_mask(
     *,
     condition: Any,
     pose_video_mask: Any,
+    mask_preset: Any = "custom",
     grow_pixels: Any = 0,
     blur_pixels: Any = 0,
     strict_replacement_mode: bool = False,
@@ -410,11 +427,15 @@ def build_replacement_denoise_mask(
     if strict_replacement_mode and valid_condition.mode != "replacement":
         raise ValueError("replacement denoise mask requires replacement mode")
 
-    grow = _positive_or_zero_int("grow_pixels", grow_pixels)
-    blur = _positive_or_zero_int("blur_pixels", blur_pixels)
+    preset, grow, blur = resolve_mask_preset(
+        mask_preset,
+        grow_pixels=grow_pixels,
+        blur_pixels=blur_pixels,
+    )
     if valid_condition.mode != "replacement":
         return _build_mode_passthrough_mask(
             valid_condition,
+            mask_preset=preset,
             grow_pixels=grow,
             blur_pixels=blur,
         )
@@ -423,6 +444,7 @@ def build_replacement_denoise_mask(
             return _build_tensor_subject_mask(
                 pose_video_mask,
                 condition=valid_condition,
+                mask_preset=preset,
                 grow_pixels=grow,
                 blur_pixels=blur,
                 invert=bool(invert),
@@ -433,6 +455,7 @@ def build_replacement_denoise_mask(
             return _build_tensor_subject_mask(
                 pose_video_mask,
                 condition=valid_condition,
+                mask_preset=preset,
                 grow_pixels=grow,
                 blur_pixels=blur,
                 invert=bool(invert),
@@ -461,12 +484,15 @@ def build_replacement_denoise_mask(
 
     frame_count, height, width = (int(part) for part in mask.shape)
     subject_ratio = float(mask.mean().item())
+    diagnostics = mask_diagnostics(mask)
     summary = _replacement_summary(
         condition=valid_condition,
         frame_count=frame_count,
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        mask_preset=preset,
+        diagnostics=diagnostics,
         grow_pixels=grow,
         blur_pixels=blur,
         invert=bool(invert),
@@ -482,6 +508,8 @@ def build_replacement_denoise_mask(
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        diagnostics=diagnostics,
+        mask_preset=preset,
         fast_path="semantic_indices",
         input_device="python",
         work_device=str(mask.device),

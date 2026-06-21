@@ -252,6 +252,20 @@ class WorkflowSkeletonTests(unittest.TestCase):
             "scail2_embeds",
             data["native_wrapper_contract"]["embeds_key"],
         )
+        self.assertTrue(
+            data["native_wrapper_contract"][
+                "strength_defaults_are_backward_compatible"
+            ]
+        )
+        self.assertEqual(
+            [
+                "ref_image_strength",
+                "ref_mask_strength",
+                "condition_video_strength",
+                "driving_mask_strength",
+            ],
+            data["native_wrapper_contract"]["strength_controls"],
+        )
         self.assertEqual(
             "scail_embeds",
             data["native_wrapper_contract"]["legacy_embeds_key"],
@@ -274,6 +288,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
             {
                 "SCAILPose2ColoredMask",
                 "SCAILPose2SCAIL2Condition",
+                "SCAILPose2ReplacementConditionVideo",
                 "SCAILPose2ReplacementDenoiseMask",
                 "WanVideoEncode",
                 "WanVideoAddSCAIL2ConditionEmbeds",
@@ -292,6 +307,22 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertIn(
             (
                 ("workflow_inputs", "driving_video"),
+                ("replacement_condition_video", "driving_video"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("colored_masks", "pose_video_mask"),
+                ("replacement_condition_video", "pose_video_mask"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("replacement_condition_video", "driving_video_condition"),
                 ("scail2_condition", "driving_video"),
                 "IMAGE",
             ),
@@ -337,6 +368,18 @@ class WorkflowSkeletonTests(unittest.TestCase):
             ),
             links,
         )
+        embeds_node = next(
+            node for node in data["nodes"] if node["id"] == "wan_scail2_condition_embeds"
+        )
+        self.assertEqual(
+            {
+                "ref_image_strength": 1.0,
+                "ref_mask_strength": 1.0,
+                "condition_video_strength": 1.0,
+                "driving_mask_strength": 1.0,
+            },
+            embeds_node["strength_defaults"],
+        )
         sampler = next(node for node in data["nodes"] if node["id"] == "wan_sampler")
         self.assertTrue(sampler["required_settings"]["add_noise_to_samples"])
         contract = data["background_lock_contract"]
@@ -347,9 +390,16 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(0.0, contract["mask_polarity"]["background_preserve_area"])
         self.assertFalse(contract["pose_geometry_alignment_required"])
         self.assertEqual(
-            "workflow_inputs.driving_video -> scail2_condition.driving_video",
+            "workflow_inputs.driving_video -> replacement_condition_video.driving_video -> scail2_condition.driving_video",
             contract["condition_video_source"],
         )
+        suppression = contract["condition_video_subject_suppression"]
+        self.assertTrue(suppression["does_not_replace_samples_path"])
+        self.assertIn("workflow_inputs.driving_video", suppression["optional_bypass"])
+        strengths = contract["wrapper_strength_controls"]
+        self.assertTrue(strengths["defaults_preserve_existing_behavior"])
+        self.assertIn("reference image", strengths["ref_image_strength"])
+        self.assertIn("condition video", strengths["condition_video_strength"])
         self.assertFalse(contract["render_nlf_poses_required"])
         preview = contract["preview_contract"]
         self.assertTrue(preview["early_preview_background_may_be_noisy"])
