@@ -353,6 +353,23 @@ class WorkflowSkeletonTests(unittest.TestCase):
             "RenderNLFPoses.pose_video_mask",
             contract["pose_geometry_alignment_node"],
         )
+        preview = contract["preview_contract"]
+        self.assertTrue(preview["early_preview_background_may_be_noisy"])
+        self.assertFalse(preview["preview_is_final_preservation_evidence"])
+        self.assertTrue(preview["final_preservation_requires_samples_noise_mask_path"])
+        mask_contract = contract["wrapper_noise_mask_contract"]
+        self.assertTrue(mask_contract["metadata_required"])
+        self.assertEqual("nearest_binary", mask_contract["tagged_interpolation_policy"])
+        self.assertEqual("downstream_default", mask_contract["untagged_policy"])
+        context_contract = contract["context_frame_map_contract"]
+        self.assertEqual("WanVideoContextOptions", context_contract["context_owner"])
+        self.assertTrue(context_contract["core_does_not_schedule_context_windows"])
+        self.assertTrue(
+            context_contract["pose_latents_and_driving_masks_must_share_frame_count"]
+        )
+        self.assertTrue(
+            context_contract["samples_and_noise_mask_must_share_latent_timeline"]
+        )
 
     def test_wananimate_fallback_skeleton_requires_explicit_degradation(self) -> None:
         data = load_skeleton("wananimate_fallback.json")

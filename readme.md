@@ -14,6 +14,8 @@ ComfyUI-SCAIL-Pose2 is a ComfyUI custom node package for SCAIL-2 pose and mask p
   - [Data Contract](#data-contract)
   - [Pose Geometry](#pose-geometry)
   - [Replacement Mode](#replacement-mode)
+    - [Required Wiring](#required-wiring)
+    - [Preview Behavior](#preview-behavior)
   - [Notes](#notes)
 - [License](#license)
 
@@ -86,12 +88,20 @@ Rendered pose images may be half the final generation resolution, but they must 
 
 ### Replacement Mode
 
+#### Required Wiring
+
 Replacement workflows use two repo outputs:
 
 1. `SCAILPose2WanVideoSCAIL2Adapter.condition` for SCAIL-2 conditioning.
 2. `SCAILPose2ReplacementDenoiseMask.mask` for hard background preservation.
 
-SCAIL-2 conditioning guides subject/reference behavior; it does not hard-freeze the original background by itself. In `animation` mode, `SCAILPose2ReplacementDenoiseMask` emits an all-`1.0` passthrough mask with metadata that disables compatible downstream background-lock samples.
+SCAIL-2 conditioning guides subject/reference behavior; it does not hard-freeze the original background by itself. Replacement background lock also requires the downstream video encode samples path to receive the original `driving_video` and this repo's replacement denoise mask, then pass those samples into the sampler. In `animation` mode, `SCAILPose2ReplacementDenoiseMask` emits an all-`1.0` passthrough mask with metadata that disables compatible downstream background-lock samples.
+
+Compatible downstream integrations should preserve the replacement mask's SCAIL-Pose2 metadata so subject pixels remain `1.0` replace/denoise areas and background pixels remain `0.0` preserve areas after latent conversion.
+
+#### Preview Behavior
+
+Early sampler previews can still show a noisy or incomplete original background even when the background-lock path is wired correctly. During early denoise steps, the preserved background latent is also highly noised; judge background preservation from later previews or the final decoded output, not from the first preview frames alone.
 
 ### Notes
 

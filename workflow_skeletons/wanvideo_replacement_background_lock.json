@@ -212,7 +212,26 @@
       "background_preserve_area": 0.0
     },
     "pose_geometry_alignment_required": true,
-    "pose_geometry_alignment_node": "RenderNLFPoses.pose_video_mask"
+    "pose_geometry_alignment_node": "RenderNLFPoses.pose_video_mask",
+    "preview_contract": {
+      "early_preview_background_may_be_noisy": true,
+      "preview_is_final_preservation_evidence": false,
+      "final_preservation_requires_samples_noise_mask_path": true
+    },
+    "wrapper_noise_mask_contract": {
+      "metadata_required": true,
+      "condition_mode_attr": "scail_pose2_condition_mode",
+      "mask_role_attr": "scail_pose2_mask_role",
+      "replacement_mask_role": "replacement_denoise_mask",
+      "tagged_interpolation_policy": "nearest_binary",
+      "untagged_policy": "downstream_default"
+    },
+    "context_frame_map_contract": {
+      "context_owner": "WanVideoContextOptions",
+      "core_does_not_schedule_context_windows": true,
+      "pose_latents_and_driving_masks_must_share_frame_count": true,
+      "samples_and_noise_mask_must_share_latent_timeline": true
+    }
   },
   "warnings": [
     "This static skeleton documents replacement background-lock wiring and does not execute generation.",

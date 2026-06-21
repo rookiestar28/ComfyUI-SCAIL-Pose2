@@ -116,6 +116,11 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertIn("safe progress/log summaries", readme)
         self.assertIn("clean-history continuation is not claimed", readme)
         self.assertIn("lossy v1 fallback", readme)
+        self.assertIn("Early sampler previews can still show", readme)
+        self.assertIn("SCAIL-Pose2 metadata", readme)
+        node_groups = readme.split("## Native SCAIL-2 Workflow Notes", maxsplit=1)[0]
+        self.assertNotIn("WanVideoAddSCAIL2ConditionEmbeds", node_groups)
+        self.assertNotIn("WanVideoEncode", node_groups)
         self.assertNotIn("reference/docs", readme)
         self.assertNotIn(".planning", readme)
 
