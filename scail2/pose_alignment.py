@@ -74,18 +74,12 @@ def _target_mask_bbox_in_pose_space(
     mask_bbox: BoundingBox,
     mask_size: tuple[int, int],
     pose_size: tuple[int, int],
-    target_width: int,
-    target_height: int,
 ) -> BoundingBox:
     mask_height, mask_width = mask_size
     pose_height, pose_width = pose_size
-    in_target = mask_bbox.scale(
-        scale_x=target_width / mask_width,
-        scale_y=target_height / mask_height,
-    )
-    return in_target.scale(
-        scale_x=pose_width / target_width,
-        scale_y=pose_height / target_height,
+    return mask_bbox.scale(
+        scale_x=pose_width / mask_width,
+        scale_y=pose_height / mask_height,
     )
 
 
@@ -134,8 +128,6 @@ def _align_python_pose_video(
     mask_boxes: tuple[BoundingBox | None, ...],
     pose_size: tuple[int, int],
     mask_size: tuple[int, int],
-    target_width: int,
-    target_height: int,
 ) -> tuple[Any, ...]:
     frames = _split_image_frames(pose_video)
     pose_height, pose_width = pose_size
@@ -151,8 +143,6 @@ def _align_python_pose_video(
             mask_bbox=mask_bbox,
             mask_size=mask_size,
             pose_size=pose_size,
-            target_width=target_width,
-            target_height=target_height,
         )
         dx0, dy0, dx1, dy1 = _int_bbox(target_bbox, width=pose_width, height=pose_height)
         crop = tuple(tuple(row[sx0:sx1]) for row in frame[sy0:sy1])
@@ -173,8 +163,6 @@ def _align_tensor_pose_video(
     mask_boxes: tuple[BoundingBox | None, ...],
     pose_size: tuple[int, int],
     mask_size: tuple[int, int],
-    target_width: int,
-    target_height: int,
 ) -> Any:
     torch = _torch_or_none()
     if torch is None:
@@ -198,8 +186,6 @@ def _align_tensor_pose_video(
             mask_bbox=mask_bbox,
             mask_size=mask_size,
             pose_size=pose_size,
-            target_width=target_width,
-            target_height=target_height,
         )
         dx0, dy0, dx1, dy1 = _int_bbox(target_bbox, width=pose_width, height=pose_height)
         crop = frame[sy0:sy1, sx0:sx1, :]
@@ -228,16 +214,20 @@ def align_pose_video_to_mask(
     *,
     pose_video: Any,
     pose_video_mask: Any,
-    target_width: Any,
-    target_height: Any,
+    target_width: Any | None = None,
+    target_height: Any | None = None,
 ) -> PoseMaskAlignmentResult:
-    width = int(target_width)
-    height = int(target_height)
-    if width <= 0 or height <= 0:
-        raise ValueError("target_width and target_height must be positive")
-
     pose_size = frame_size(pose_video, kind="pose_image")
     mask_size = frame_size(pose_video_mask, kind="semantic_rgb_mask")
+    if target_width is None and target_height is None:
+        height, width = mask_size
+    elif target_width is None or target_height is None:
+        raise ValueError("target_width and target_height must be provided together")
+    else:
+        width = int(target_width)
+        height = int(target_height)
+        if width <= 0 or height <= 0:
+            raise ValueError("target_width and target_height must be positive")
     pose_boxes = frame_bboxes(pose_video, kind="pose_image")
     mask_boxes = frame_bboxes(pose_video_mask, kind="semantic_rgb_mask")
     before = diagnose_pose_mask_geometry(
@@ -254,8 +244,6 @@ def align_pose_video_to_mask(
             mask_boxes=mask_boxes,
             pose_size=pose_size,
             mask_size=mask_size,
-            target_width=width,
-            target_height=height,
         )
     else:
         aligned = _align_python_pose_video(
@@ -264,8 +252,6 @@ def align_pose_video_to_mask(
             mask_boxes=mask_boxes,
             pose_size=pose_size,
             mask_size=mask_size,
-            target_width=width,
-            target_height=height,
         )
 
     after = diagnose_pose_mask_geometry(

@@ -261,7 +261,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
             {
                 "SCAILPose2ColoredMask",
                 "SCAILPose2SCAIL2Condition",
-                "SCAILPose2PoseMaskGeometryAlign",
+                "RenderNLFPoses",
                 "SCAILPose2ReplacementDenoiseMask",
                 "WanVideoEncode",
                 "WanVideoAddSCAIL2ConditionEmbeds",
@@ -278,23 +278,23 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                ("workflow_inputs", "rendered_pose_video"),
-                ("pose_mask_geometry_align", "pose_video"),
-                "IMAGE",
+                ("workflow_inputs", "nlf_poses"),
+                ("render_nlf_poses", "nlf_poses"),
+                "NLFPRED",
             ),
             links,
         )
         self.assertIn(
             (
                 ("colored_masks", "pose_video_mask"),
-                ("pose_mask_geometry_align", "pose_video_mask"),
+                ("render_nlf_poses", "pose_video_mask"),
                 "IMAGE",
             ),
             links,
         )
         self.assertIn(
             (
-                ("pose_mask_geometry_align", "pose_video"),
+                ("render_nlf_poses", "pose_video"),
                 ("scail2_condition", "pose_video"),
                 "IMAGE",
             ),
@@ -350,7 +350,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(0.0, contract["mask_polarity"]["background_preserve_area"])
         self.assertTrue(contract["pose_geometry_alignment_required"])
         self.assertEqual(
-            "SCAILPose2PoseMaskGeometryAlign",
+            "RenderNLFPoses.pose_video_mask",
             contract["pose_geometry_alignment_node"],
         )
 

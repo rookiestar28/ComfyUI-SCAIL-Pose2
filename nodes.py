@@ -77,6 +77,8 @@ except ImportError:
         def update_absolute(self, _value):
             return None
 
+from .scail2.pose_alignment import align_pose_video_to_mask
+
 
 def _require_dependency(name, module):
     if module is None:
@@ -349,6 +351,7 @@ class RenderNLFPoses:
             "optional": {
                 "dw_poses": ("DWPOSES", {"default": None, "tooltip": "Optional DW pose model for 2D drawing"}),
                 "ref_dw_pose": ("DWPOSES", {"default": None, "tooltip": "Optional reference DW pose model for alignment"}),
+                "pose_video_mask": ("IMAGE", {"default": None, "tooltip": "Optional SAM3/SCAIL-2 pose_video_mask used to align rendered pose geometry"}),
                 "draw_face": ("BOOLEAN", {"default": True, "tooltip": "Whether to draw face keypoints"}),
                 "draw_hands": ("BOOLEAN", {"default": True, "tooltip": "Whether to draw hand keypoints"}),
                 "render_device": (["gpu", "cpu", "opengl", "cuda", "vulkan", "metal"], {"default": "gpu", "tooltip": "Taichi device to use for rendering"}),
@@ -362,7 +365,7 @@ class RenderNLFPoses:
     FUNCTION = "predict"
     CATEGORY = "WanVideoWrapper"
 
-    def predict(self, nlf_poses, width, height, dw_poses=None, ref_dw_pose=None, draw_face=True, draw_hands=True, render_device="gpu", scale_hands=True, render_backend="taichi"):
+    def predict(self, nlf_poses, width, height, dw_poses=None, ref_dw_pose=None, pose_video_mask=None, draw_face=True, draw_hands=True, render_device="gpu", scale_hands=True, render_backend="taichi"):
         _require_dependency("numpy", np)
         _require_dependency("torch", torch)
 
@@ -456,9 +459,18 @@ class RenderNLFPoses:
             frames_np = render_nlf_as_images(pose_input, dw_pose_input, height, width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=draw_face, draw_hands=draw_hands, render_backend = render_backend)
 
         frames_tensor = torch.from_numpy(np.stack(frames_np, axis=0)).contiguous() / 255.0
-        frames_tensor, mask = frames_tensor[..., :3], frames_tensor[..., -1] > 0.5
+        frames_tensor, mask = frames_tensor[..., :3].cpu().float(), (frames_tensor[..., -1] > 0.5).cpu().float()
 
-        return (frames_tensor.cpu().float(), mask.cpu().float())
+        if pose_video_mask is not None:
+            alignment = align_pose_video_to_mask(
+                pose_video=frames_tensor,
+                pose_video_mask=pose_video_mask,
+            )
+            frames_tensor = alignment.pose_video.cpu().float()
+            mask = (frames_tensor[..., :3] > 0.001).any(dim=-1).float()
+            logging.info("Render NLF Poses pose/mask alignment: %s", alignment.summary)
+
+        return (frames_tensor, mask)
 
 class SaveNLFPosesAs3D:
     @classmethod

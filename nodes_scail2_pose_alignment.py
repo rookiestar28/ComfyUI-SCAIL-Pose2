@@ -21,8 +21,6 @@ class SCAILPose2PoseMaskGeometryAlign:
             "required": {
                 "pose_video": ("IMAGE",),
                 "pose_video_mask": ("IMAGE",),
-                "width": ("INT", {"default": 512, "min": 1, "step": 1}),
-                "height": ("INT", {"default": 512, "min": 1, "step": 1}),
             },
         }
 
@@ -35,22 +33,18 @@ class SCAILPose2PoseMaskGeometryAlign:
         "SAM3-derived SCAIL-2 pose_video_mask bbox."
     )
 
-    def align(self, pose_video, pose_video_mask, width, height):
+    def align(self, pose_video, pose_video_mask):
         progress = make_progress(2)
         started_ms = perf_counter_ms()
         LOGGER.info(
-            "SCAIL-Pose2 Pose Mask Geometry Align start: pose=%s pose_mask=%s size=%sx%s",
+            "SCAIL-Pose2 Pose Mask Geometry Align start: pose=%s pose_mask=%s",
             safe_value_summary(pose_video),
             safe_value_summary(pose_video_mask),
-            int(width),
-            int(height),
         )
         progress.update()
         result = align_pose_video_to_mask(
             pose_video=pose_video,
             pose_video_mask=pose_video_mask,
-            target_width=width,
-            target_height=height,
         )
         progress.update()
         LOGGER.info(

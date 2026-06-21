@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import types
 import unittest
 from pathlib import Path
+
+from scail2.geometry import frame_bboxes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +65,82 @@ class V1PosePipelineTests(unittest.TestCase):
 
         self.assertEqual(("IMAGE", "MASK"), render_node.RETURN_TYPES)
         self.assertEqual(("image", "mask"), render_node.RETURN_NAMES)
+
+    def test_render_nlf_poses_exposes_optional_pose_video_mask_alignment(self) -> None:
+        package = import_root_package()
+        render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]
+        optional = render_node.INPUT_TYPES()["optional"]
+
+        self.assertIn("pose_video_mask", optional)
+        self.assertEqual("IMAGE", optional["pose_video_mask"][0])
+
+    def test_render_nlf_poses_applies_optional_pose_video_mask_alignment(self) -> None:
+        try:
+            import numpy as np
+            import torch
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"render dependencies unavailable: {exc}")
+
+        package = import_root_package()
+        render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]()
+        package_prefix = PACKAGE_NAME
+        nlf_package_name = f"{package_prefix}.NLFPoseExtract"
+        render_module_name = f"{nlf_package_name}.nlf_render"
+        align3d_module_name = f"{nlf_package_name}.align3d"
+
+        nlf_package = types.ModuleType(nlf_package_name)
+        render_module = types.ModuleType(render_module_name)
+        align3d_module = types.ModuleType(align3d_module_name)
+
+        def intrinsic_matrix_from_field_of_view(_shape):
+            return np.eye(3, dtype=np.float32)
+
+        def render_nlf_as_images(_pose_input, _dw_pose_input, height, width, *_args, **_kwargs):
+            frame = np.zeros((height, width, 4), dtype=np.uint8)
+            frame[0:2, 0:2, 2] = 255
+            frame[0:2, 0:2, 3] = 255
+            return [frame]
+
+        render_module.intrinsic_matrix_from_field_of_view = intrinsic_matrix_from_field_of_view
+        render_module.render_nlf_as_images = render_nlf_as_images
+        render_module.render_multi_nlf_as_images = render_nlf_as_images
+        render_module.shift_dwpose_according_to_nlf = lambda *_args, **_kwargs: None
+        render_module.process_data_to_COCO_format = lambda value: value
+        align3d_module.solve_new_camera_params_central = lambda *_args, **_kwargs: (np.eye(3), 1.0, 1.0)
+        align3d_module.solve_new_camera_params_down = lambda *_args, **_kwargs: (np.eye(3), 1.0, 1.0)
+
+        original_modules = {
+            name: sys.modules.get(name)
+            for name in (nlf_package_name, render_module_name, align3d_module_name)
+        }
+        try:
+            sys.modules[nlf_package_name] = nlf_package
+            sys.modules[render_module_name] = render_module
+            sys.modules[align3d_module_name] = align3d_module
+
+            pose_input = [torch.zeros((1, 1, 3), dtype=torch.float32)]
+            driving_mask = torch.zeros((1, 8, 8, 3), dtype=torch.float32)
+            driving_mask[0, 4:8, 4:8, 2] = 1.0
+
+            raw_image, raw_mask = render_node.predict(pose_input, 8, 8, render_backend="torch")
+            aligned_image, aligned_mask = render_node.predict(
+                pose_input,
+                8,
+                8,
+                pose_video_mask=driving_mask,
+                render_backend="torch",
+            )
+
+            self.assertEqual((0.0, 0.0, 2.0, 2.0), frame_bboxes(raw_image, kind="pose_image")[0].to_tuple())
+            self.assertEqual((4.0, 4.0, 8.0, 8.0), frame_bboxes(aligned_image, kind="pose_image")[0].to_tuple())
+            self.assertEqual((0.0, 0.0, 2.0, 2.0), frame_bboxes(raw_mask, kind="mask")[0].to_tuple())
+            self.assertEqual((4.0, 4.0, 8.0, 8.0), frame_bboxes(aligned_mask, kind="mask")[0].to_tuple())
+        finally:
+            for name, original_module in original_modules.items():
+                if original_module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = original_module
 
 
 if __name__ == "__main__":

@@ -60,8 +60,6 @@ class Scail2PoseAlignmentTests(unittest.TestCase):
         result = align_pose_video_to_mask(
             pose_video=[pose],
             pose_video_mask=[mask],
-            target_width=8,
-            target_height=8,
         )
 
         self.assertEqual(0.0, before.mean_iou)
@@ -109,7 +107,21 @@ class Scail2PoseAlignmentTests(unittest.TestCase):
         self.assertEqual(("IMAGE", "STRING"), node_cls.RETURN_TYPES)
         self.assertEqual(("pose_video", "summary"), node_cls.RETURN_NAMES)
         required = node_cls.INPUT_TYPES()["required"]
-        self.assertEqual(("pose_video", "pose_video_mask", "width", "height"), tuple(required))
+        self.assertEqual(("pose_video", "pose_video_mask"), tuple(required))
+
+    def test_pose_alignment_node_executes_without_manual_dimensions(self) -> None:
+        package = import_root_package()
+        node_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2PoseMaskGeometryAlign"]
+        node = node_cls()
+        pose = image_frame(8, 8)
+        mask = image_frame(8, 8)
+        paint_rect(pose, x0=0, y0=0, x1=2, y1=2, color=BLUE)
+        paint_rect(mask, x0=4, y0=4, x1=8, y1=8, color=BLUE)
+
+        aligned, summary = node.align([pose], [mask])
+
+        self.assertIn("pose_mask_alignment", summary)
+        self.assertEqual((4.0, 4.0, 8.0, 8.0), frame_bboxes(aligned, kind="pose_image")[0].to_tuple())
 
     def test_tensor_alignment_preserves_tensor_contract_when_torch_is_available(self) -> None:
         try:
