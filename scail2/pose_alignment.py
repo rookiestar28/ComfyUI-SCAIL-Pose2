@@ -23,6 +23,14 @@ class PoseMaskAlignmentResult:
     after: GeometryDiagnostic
 
 
+@dataclass(frozen=True)
+class _AlignmentFrameMap:
+    mode: str
+    mask_indices: tuple[int, ...]
+    pose_frame_count: int
+    mask_frame_count: int
+
+
 def _torch_or_none() -> Any | None:
     try:
         import torch
@@ -121,6 +129,34 @@ def _freeze_python_frame(frame: Any) -> tuple[tuple[tuple[Any, ...], ...], ...]:
     return tuple(tuple(tuple(pixel) for pixel in row) for row in frame)
 
 
+def _build_alignment_frame_map(
+    *,
+    pose_frame_count: int,
+    mask_frame_count: int,
+) -> _AlignmentFrameMap:
+    if pose_frame_count <= 0 or mask_frame_count <= 0:
+        raise ValueError("pose_video and pose_video_mask frame counts must be positive")
+    if pose_frame_count == mask_frame_count:
+        return _AlignmentFrameMap(
+            mode="exact",
+            mask_indices=tuple(range(pose_frame_count)),
+            pose_frame_count=pose_frame_count,
+            mask_frame_count=mask_frame_count,
+        )
+    if mask_frame_count == 1:
+        return _AlignmentFrameMap(
+            mode="broadcast_mask",
+            mask_indices=tuple(0 for _frame in range(pose_frame_count)),
+            pose_frame_count=pose_frame_count,
+            mask_frame_count=mask_frame_count,
+        )
+    raise ValueError(
+        "pose_video and pose_video_mask frame counts must match, or "
+        "pose_video_mask must contain exactly one broadcast frame; "
+        f"got pose_frames={pose_frame_count} mask_frames={mask_frame_count}"
+    )
+
+
 def _align_python_pose_video(
     *,
     pose_video: Any,
@@ -128,13 +164,14 @@ def _align_python_pose_video(
     mask_boxes: tuple[BoundingBox | None, ...],
     pose_size: tuple[int, int],
     mask_size: tuple[int, int],
+    frame_map: _AlignmentFrameMap,
 ) -> tuple[Any, ...]:
     frames = _split_image_frames(pose_video)
     pose_height, pose_width = pose_size
     output_frames = []
     for frame_index, frame in enumerate(frames):
-        pose_bbox = pose_boxes[min(frame_index, len(pose_boxes) - 1)]
-        mask_bbox = mask_boxes[min(frame_index, len(mask_boxes) - 1)]
+        pose_bbox = pose_boxes[frame_index]
+        mask_bbox = mask_boxes[frame_map.mask_indices[frame_index]]
         if pose_bbox is None or mask_bbox is None:
             output_frames.append(_freeze_python_frame(frame))
             continue
@@ -163,6 +200,7 @@ def _align_tensor_pose_video(
     mask_boxes: tuple[BoundingBox | None, ...],
     pose_size: tuple[int, int],
     mask_size: tuple[int, int],
+    frame_map: _AlignmentFrameMap,
 ) -> Any:
     torch = _torch_or_none()
     if torch is None:
@@ -176,8 +214,8 @@ def _align_tensor_pose_video(
     pose_height, pose_width = pose_size
     output = torch.zeros_like(view)
     for frame_index, frame in enumerate(view):
-        pose_bbox = pose_boxes[min(frame_index, len(pose_boxes) - 1)]
-        mask_bbox = mask_boxes[min(frame_index, len(mask_boxes) - 1)]
+        pose_bbox = pose_boxes[frame_index]
+        mask_bbox = mask_boxes[frame_map.mask_indices[frame_index]]
         if pose_bbox is None or mask_bbox is None:
             output[frame_index] = frame
             continue
@@ -199,14 +237,22 @@ def _align_tensor_pose_video(
     return output.squeeze(0) if single_frame else output
 
 
-def _summary(before: GeometryDiagnostic, after: GeometryDiagnostic) -> str:
+def _summary(
+    before: GeometryDiagnostic,
+    after: GeometryDiagnostic,
+    frame_map: _AlignmentFrameMap,
+) -> str:
     return (
         "pose_mask_alignment "
         f"before_status={before.status} after_status={after.status} "
+        f"frame_map={frame_map.mode} "
+        f"pose_frames={frame_map.pose_frame_count} mask_frames={frame_map.mask_frame_count} "
         f"frames={after.frame_count} compared={after.compared_frames} "
         f"missing_pose={after.missing_pose_frames} missing_mask={after.missing_mask_frames} "
         f"before_mean_iou={before.mean_iou} after_mean_iou={after.mean_iou} "
-        f"after_center_delta_px={after.mean_center_delta_px}"
+        f"after_center_delta_px={after.mean_center_delta_px} "
+        f"before_center_path_error_px={before.mean_center_path_error_px} "
+        f"after_center_path_error_px={after.mean_center_path_error_px}"
     )
 
 
@@ -230,6 +276,10 @@ def align_pose_video_to_mask(
             raise ValueError("target_width and target_height must be positive")
     pose_boxes = frame_bboxes(pose_video, kind="pose_image")
     mask_boxes = frame_bboxes(pose_video_mask, kind="semantic_rgb_mask")
+    frame_map = _build_alignment_frame_map(
+        pose_frame_count=len(pose_boxes),
+        mask_frame_count=len(mask_boxes),
+    )
     before = diagnose_pose_mask_geometry(
         pose_video=pose_video,
         pose_video_mask=pose_video_mask,
@@ -244,6 +294,7 @@ def align_pose_video_to_mask(
             mask_boxes=mask_boxes,
             pose_size=pose_size,
             mask_size=mask_size,
+            frame_map=frame_map,
         )
     else:
         aligned = _align_python_pose_video(
@@ -252,6 +303,7 @@ def align_pose_video_to_mask(
             mask_boxes=mask_boxes,
             pose_size=pose_size,
             mask_size=mask_size,
+            frame_map=frame_map,
         )
 
     after = diagnose_pose_mask_geometry(
@@ -262,7 +314,7 @@ def align_pose_video_to_mask(
     )
     return PoseMaskAlignmentResult(
         pose_video=aligned,
-        summary=_summary(before, after),
+        summary=_summary(before, after, frame_map),
         before=before,
         after=after,
     )

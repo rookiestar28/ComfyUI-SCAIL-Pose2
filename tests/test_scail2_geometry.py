@@ -137,6 +137,27 @@ class Scail2GeometryTests(unittest.TestCase):
         self.assertEqual(0.5, diagnostic.mean_width_ratio)
         self.assertEqual(0.5, diagnostic.mean_height_ratio)
 
+    def test_diagnostic_reports_temporal_center_path_error(self) -> None:
+        pose_frames = []
+        mask_frames = []
+        for offset in (0, 1, 2):
+            pose = image_frame(8, 8)
+            mask = image_frame(8, 8)
+            paint_rect(pose, x0=1, y0=2, x1=3, y1=4, color=BLUE)
+            paint_rect(mask, x0=1 + offset, y0=2, x1=3 + offset, y1=4, color=BLUE)
+            pose_frames.append(pose)
+            mask_frames.append(mask)
+
+        diagnostic = diagnose_pose_mask_geometry(
+            pose_video=pose_frames,
+            pose_video_mask=mask_frames,
+            target_width=8,
+            target_height=8,
+        )
+
+        self.assertEqual(1.0, diagnostic.mean_center_path_error_px)
+        self.assertEqual(1.0, diagnostic.max_center_path_error_px)
+
     def test_replacement_geometry_issues_identify_worst_frame(self) -> None:
         aligned_pose = image_frame(8, 8)
         aligned_mask = image_frame(8, 8)

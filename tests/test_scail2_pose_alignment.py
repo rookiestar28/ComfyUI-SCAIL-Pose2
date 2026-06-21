@@ -84,6 +84,60 @@ class Scail2PoseAlignmentTests(unittest.TestCase):
         self.assertEqual(1.0, result.after.mean_iou)
         self.assertEqual((2.0, 2.0, 4.0, 4.0), frame_bboxes(result.pose_video, kind="pose_image")[0].to_tuple())
 
+    def test_alignment_tracks_moving_mask_without_temporal_path_error(self) -> None:
+        pose_frames = []
+        mask_frames = []
+        for offset in (0, 1, 2):
+            pose = image_frame(8, 8)
+            mask = image_frame(8, 8)
+            paint_rect(pose, x0=0, y0=2, x1=2, y1=4, color=BLUE)
+            paint_rect(mask, x0=2 + offset, y0=2, x1=4 + offset, y1=4, color=BLUE)
+            pose_frames.append(pose)
+            mask_frames.append(mask)
+
+        result = align_pose_video_to_mask(
+            pose_video=pose_frames,
+            pose_video_mask=mask_frames,
+        )
+
+        self.assertEqual("ok", result.after.status)
+        self.assertEqual(1.0, result.after.mean_iou)
+        self.assertEqual(0.0, result.after.mean_center_delta_px)
+        self.assertGreater(result.before.mean_center_path_error_px, 0.0)
+        self.assertEqual(0.0, result.after.mean_center_path_error_px)
+        self.assertIn("frame_map=exact", result.summary)
+
+    def test_alignment_rejects_non_broadcast_frame_count_mismatch(self) -> None:
+        pose_frames = [image_frame(4, 4) for _frame in range(3)]
+        mask_frames = [image_frame(4, 4) for _frame in range(2)]
+        for pose in pose_frames:
+            paint_rect(pose, x0=0, y0=0, x1=1, y1=1, color=BLUE)
+        for mask in mask_frames:
+            paint_rect(mask, x0=1, y0=1, x1=2, y1=2, color=BLUE)
+
+        with self.assertRaisesRegex(ValueError, "frame counts must match"):
+            align_pose_video_to_mask(
+                pose_video=pose_frames,
+                pose_video_mask=mask_frames,
+            )
+
+    def test_alignment_allows_single_frame_mask_broadcast(self) -> None:
+        pose_frames = []
+        for _frame in range(3):
+            pose = image_frame(4, 4)
+            paint_rect(pose, x0=0, y0=0, x1=1, y1=1, color=BLUE)
+            pose_frames.append(pose)
+        mask = image_frame(4, 4)
+        paint_rect(mask, x0=1, y0=1, x1=3, y1=3, color=BLUE)
+
+        result = align_pose_video_to_mask(
+            pose_video=pose_frames,
+            pose_video_mask=[mask],
+        )
+
+        self.assertEqual(3, len(result.pose_video))
+        self.assertIn("frame_map=broadcast_mask", result.summary)
+
     def test_empty_foreground_frame_is_left_unchanged_and_reported(self) -> None:
         pose = image_frame(4, 4)
         mask = image_frame(4, 4)

@@ -160,6 +160,15 @@ class GeometryDiagnostic:
         values = [comparison.height_ratio for comparison in self.comparisons]
         return max(values) if values else None
 
+    @property
+    def mean_center_path_error_px(self) -> float | None:
+        return _mean_or_none(_center_path_errors(self.comparisons))
+
+    @property
+    def max_center_path_error_px(self) -> float | None:
+        values = _center_path_errors(self.comparisons)
+        return max(values) if values else None
+
     def to_summary(self) -> dict[str, Any]:
         return {
             "status": self.status,
@@ -182,6 +191,8 @@ class GeometryDiagnostic:
             "mean_height_ratio": self.mean_height_ratio,
             "min_height_ratio": self.min_height_ratio,
             "max_height_ratio": self.max_height_ratio,
+            "mean_center_path_error_px": self.mean_center_path_error_px,
+            "max_center_path_error_px": self.max_center_path_error_px,
         }
 
 
@@ -206,6 +217,25 @@ def _comparison_with_max(
 def _mean_or_none(values: Any) -> float | None:
     materialized = [float(value) for value in values]
     return mean(materialized) if materialized else None
+
+
+def _center_path_errors(
+    comparisons: tuple[FrameGeometryComparison, ...],
+) -> list[float]:
+    if len(comparisons) < 2:
+        return []
+    errors = []
+    previous = comparisons[0]
+    for current in comparisons[1:]:
+        pose_dx = current.pose_bbox.center_x - previous.pose_bbox.center_x
+        pose_dy = current.pose_bbox.center_y - previous.pose_bbox.center_y
+        mask_dx = current.mask_bbox.center_x - previous.mask_bbox.center_x
+        mask_dy = current.mask_bbox.center_y - previous.mask_bbox.center_y
+        delta_x = pose_dx - mask_dx
+        delta_y = pose_dy - mask_dy
+        errors.append((delta_x * delta_x + delta_y * delta_y) ** 0.5)
+        previous = current
+    return errors
 
 
 def _torch_or_none() -> Any | None:
