@@ -6,6 +6,7 @@ __all__ = [
     "generation_policy",
     "geometry",
     "masks",
+    "pose_alignment",
     "preprocessing",
     "replacement_mask",
     "sam3_preprocessing",
