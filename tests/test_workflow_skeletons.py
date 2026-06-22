@@ -288,7 +288,6 @@ class WorkflowSkeletonTests(unittest.TestCase):
             {
                 "SCAILPose2ColoredMask",
                 "SCAILPose2SCAIL2Condition",
-                "SCAILPose2ReplacementConditionVideo",
                 "SCAILPose2ReplacementDenoiseMask",
                 "WanVideoEncode",
                 "WanVideoAddSCAIL2ConditionEmbeds",
@@ -296,6 +295,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
             }.issubset(class_types)
         )
         self.assertNotIn("RenderNLFPoses", class_types)
+        self.assertNotIn("SCAILPose2ReplacementConditionVideo", class_types)
         self.assertIn(
             (
                 ("colored_masks", "pose_video_mask"),
@@ -307,22 +307,6 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertIn(
             (
                 ("workflow_inputs", "driving_video"),
-                ("replacement_condition_video", "driving_video"),
-                "IMAGE",
-            ),
-            links,
-        )
-        self.assertIn(
-            (
-                ("colored_masks", "pose_video_mask"),
-                ("replacement_condition_video", "pose_video_mask"),
-                "IMAGE",
-            ),
-            links,
-        )
-        self.assertIn(
-            (
-                ("replacement_condition_video", "driving_video_condition"),
                 ("scail2_condition", "driving_video"),
                 "IMAGE",
             ),
@@ -390,12 +374,13 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(0.0, contract["mask_polarity"]["background_preserve_area"])
         self.assertFalse(contract["pose_geometry_alignment_required"])
         self.assertEqual(
-            "workflow_inputs.driving_video -> replacement_condition_video.driving_video -> scail2_condition.driving_video",
+            "workflow_inputs.driving_video -> scail2_condition.driving_video",
             contract["condition_video_source"],
         )
-        suppression = contract["condition_video_subject_suppression"]
-        self.assertTrue(suppression["does_not_replace_samples_path"])
-        self.assertIn("workflow_inputs.driving_video", suppression["optional_bypass"])
+        fallback = contract["replacement_condition_video_fallback"]
+        self.assertEqual("legacy_experimental_manual", fallback["status"])
+        self.assertTrue(fallback["may_weaken_pose_latents"])
+        self.assertTrue(fallback["does_not_replace_samples_path"])
         strengths = contract["wrapper_strength_controls"]
         self.assertTrue(strengths["defaults_preserve_existing_behavior"])
         self.assertIn("reference image", strengths["ref_image_strength"])

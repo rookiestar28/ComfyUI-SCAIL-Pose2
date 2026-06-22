@@ -55,20 +55,6 @@
       }
     },
     {
-      "id": "replacement_condition_video",
-      "class_type": "SCAILPose2ReplacementConditionVideo",
-      "role": "subject_suppressed_replacement_condition_video",
-      "output_type": "IMAGE",
-      "output_name": "driving_video_condition",
-      "default_settings": {
-        "mask_preset": "custom",
-        "grow_pixels": 8,
-        "blur_pixels": 0,
-        "suppression_mode": "blur_fill",
-        "suppression_strength": 1.0
-      }
-    },
-    {
       "id": "wanvideo_encode",
       "class_type": "WanVideoEncode",
       "role": "wrapper_latent_samples_with_noise_mask",
@@ -154,16 +140,6 @@
     },
     {
       "from": ["workflow_inputs", "driving_video"],
-      "to": ["replacement_condition_video", "driving_video"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["colored_masks", "pose_video_mask"],
-      "to": ["replacement_condition_video", "pose_video_mask"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["replacement_condition_video", "driving_video_condition"],
       "to": ["scail2_condition", "driving_video"],
       "type": "IMAGE"
     },
@@ -233,10 +209,11 @@
       "background_preserve_area": 0.0
     },
     "pose_geometry_alignment_required": false,
-    "condition_video_source": "workflow_inputs.driving_video -> replacement_condition_video.driving_video -> scail2_condition.driving_video",
-    "condition_video_subject_suppression": {
-      "optional_bypass": "wire workflow_inputs.driving_video directly to scail2_condition.driving_video",
-      "purpose": "reduce original subject pixel leakage in SCAIL-2 replacement conditioning",
+    "condition_video_source": "workflow_inputs.driving_video -> scail2_condition.driving_video",
+    "replacement_condition_video_fallback": {
+      "status": "legacy_experimental_manual",
+      "purpose": "manual subject suppression experiments only; not canonical replacement wiring",
+      "may_weaken_pose_latents": true,
       "does_not_replace_samples_path": true
     },
     "wrapper_strength_controls": {
