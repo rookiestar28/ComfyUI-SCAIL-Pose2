@@ -22,11 +22,35 @@ from .replacement_presets import resolve_mask_preset
 
 
 TENSOR_FAST_PATH_CHUNK_FRAMES = 16
+DEFAULT_LOWER_CONTACT_REFINE = True
+DEFAULT_LOWER_CONTACT_GROW_PIXELS = 8
+DEFAULT_LOWER_CONTACT_BAND_RATIO = 0.30
+DEFAULT_LOWER_CONTACT_AREA_CAP_RATIO = 0.25
 SCAIL_POSE2_DISABLE_SAMPLES_ATTR = "scail_pose2_disable_samples"
 SCAIL_POSE2_DISABLE_SAMPLES_REASON_ATTR = "scail_pose2_disable_samples_reason"
 SCAIL_POSE2_CONDITION_MODE_ATTR = "scail_pose2_condition_mode"
 SCAIL_POSE2_MASK_ROLE_ATTR = "scail_pose2_mask_role"
 SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE = "replacement_denoise_mask"
+
+
+@dataclass(frozen=True)
+class LowerContactRefineStats:
+    enabled: bool
+    requested_grow_pixels: int
+    band_ratio: float
+    area_cap_ratio: float
+    candidate_frames: int = 0
+    refined_frames: int = 0
+    max_applied_grow_pixels: int = 0
+    base_pixels: float = 0.0
+    added_pixels: float = 0.0
+    max_frame_area_delta_ratio: float = 0.0
+
+    @property
+    def area_delta_ratio(self) -> float:
+        if self.base_pixels <= 0.0:
+            return 0.0
+        return self.added_pixels / self.base_pixels
 
 
 @dataclass(frozen=True)
@@ -43,6 +67,7 @@ class ReplacementDenoiseMaskResult:
     input_device: str = "unknown"
     work_device: str = "cpu"
     output_device: str = "cpu"
+    lower_contact_refine: LowerContactRefineStats | None = None
 
 
 def _torch_required() -> Any:
@@ -73,6 +98,36 @@ def _as_list(value: Any) -> Any:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (bool, int, float))
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
+
+
+def _non_negative_int(name: str, value: Any) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a non-negative integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a non-negative integer") from exc
+    if parsed < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+    return parsed
+
+
+def _float_in_range(name: str, value: Any, *, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a number")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number") from exc
+    if parsed < minimum or parsed > maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return parsed
 
 
 def _looks_like_hwc_image(value: Any) -> bool:
@@ -182,6 +237,161 @@ def _attach_scail_pose2_mask_metadata(
     setattr(mask, SCAIL_POSE2_MASK_ROLE_ATTR, role)
 
 
+def _disabled_lower_contact_stats(
+    *,
+    enabled: bool,
+    grow_pixels: int,
+    band_ratio: float,
+    area_cap_ratio: float,
+) -> LowerContactRefineStats:
+    return LowerContactRefineStats(
+        enabled=enabled,
+        requested_grow_pixels=grow_pixels,
+        band_ratio=band_ratio,
+        area_cap_ratio=area_cap_ratio,
+    )
+
+
+def _merge_lower_contact_stats(
+    stats: list[LowerContactRefineStats],
+) -> LowerContactRefineStats | None:
+    if not stats:
+        return None
+    first = stats[0]
+    return LowerContactRefineStats(
+        enabled=any(item.enabled for item in stats),
+        requested_grow_pixels=first.requested_grow_pixels,
+        band_ratio=first.band_ratio,
+        area_cap_ratio=first.area_cap_ratio,
+        candidate_frames=sum(item.candidate_frames for item in stats),
+        refined_frames=sum(item.refined_frames for item in stats),
+        max_applied_grow_pixels=max(item.max_applied_grow_pixels for item in stats),
+        base_pixels=sum(item.base_pixels for item in stats),
+        added_pixels=sum(item.added_pixels for item in stats),
+        max_frame_area_delta_ratio=max(
+            item.max_frame_area_delta_ratio for item in stats
+        ),
+    )
+
+
+def _lower_contact_summary_fragment(stats: LowerContactRefineStats | None) -> str:
+    if stats is None:
+        return (
+            "lower_contact_refine=False "
+            "lower_contact_grow_pixels=0 "
+            "lower_contact_band_ratio=0.000000 "
+            "lower_contact_area_cap_ratio=0.000000 "
+            "lower_contact_candidate_frames=0 "
+            "lower_contact_refined_frames=0 "
+            "lower_contact_area_delta_ratio=0.000000 "
+            "lower_contact_max_area_delta_ratio=0.000000"
+        )
+    return (
+        f"lower_contact_refine={stats.enabled} "
+        f"lower_contact_grow_pixels={stats.requested_grow_pixels} "
+        f"lower_contact_band_ratio={stats.band_ratio:.6f} "
+        f"lower_contact_area_cap_ratio={stats.area_cap_ratio:.6f} "
+        f"lower_contact_candidate_frames={stats.candidate_frames} "
+        f"lower_contact_refined_frames={stats.refined_frames} "
+        f"lower_contact_area_delta_ratio={stats.area_delta_ratio:.6f} "
+        f"lower_contact_max_area_delta_ratio={stats.max_frame_area_delta_ratio:.6f}"
+    )
+
+
+def _refine_lower_contact_mask(
+    mask: Any,
+    *,
+    enabled: bool,
+    grow_pixels: int,
+    band_ratio: float,
+    area_cap_ratio: float,
+) -> tuple[Any, LowerContactRefineStats]:
+    if not enabled or grow_pixels <= 0:
+        return mask, _disabled_lower_contact_stats(
+            enabled=enabled,
+            grow_pixels=grow_pixels,
+            band_ratio=band_ratio,
+            area_cap_ratio=area_cap_ratio,
+        )
+    if mask.ndim != 3:
+        raise ValueError(
+            "lower-contact refinement requires mask shape [frames, height, width]"
+        )
+
+    torch = _torch_required()
+    frames, height, _width = (int(part) for part in mask.shape)
+    active = mask > 0.5
+    base_area = active.flatten(1).sum(dim=1).to(dtype=torch.float32)
+    has_subject = base_area > 0
+    if not bool(has_subject.any().item()):
+        return mask, _disabled_lower_contact_stats(
+            enabled=enabled,
+            grow_pixels=grow_pixels,
+            band_ratio=band_ratio,
+            area_cap_ratio=area_cap_ratio,
+        )
+
+    rows_present = active.any(dim=2)
+    row_values = torch.arange(height, device=mask.device, dtype=torch.long).view(
+        1,
+        height,
+    )
+    row_values = row_values.expand(frames, height)
+    y0 = (
+        torch.where(rows_present, row_values, torch.full_like(row_values, height))
+        .min(dim=1)
+        .values
+    )
+    y1 = (
+        torch.where(rows_present, row_values, torch.full_like(row_values, -1))
+        .max(dim=1)
+        .values
+    )
+    bbox_height = (y1 - y0 + 1).clamp(min=1)
+    band_offset = torch.floor(bbox_height.to(dtype=torch.float32) * (1.0 - band_ratio))
+    band_start = (y0 + band_offset.to(dtype=torch.long)).clamp(
+        min=0,
+        max=max(height - 1, 0),
+    )
+
+    y_grid = torch.arange(height, device=mask.device, dtype=torch.long).view(
+        1,
+        height,
+        1,
+    )
+    band_mask = y_grid >= band_start.view(frames, 1, 1)
+    lower_subject = active & band_mask & has_subject.view(frames, 1, 1)
+    candidate_frames = lower_subject.flatten(1).any(dim=1)
+    grown_lower = _grow_mask(lower_subject.to(dtype=mask.dtype), grow_pixels) > 0.5
+    candidate_extra = grown_lower & band_mask & ~active
+    added_area = candidate_extra.flatten(1).sum(dim=1).to(dtype=torch.float32)
+    delta_ratio = torch.zeros_like(base_area)
+    valid_area = base_area > 0
+    delta_ratio[valid_area] = added_area[valid_area] / base_area[valid_area]
+
+    accepted = candidate_frames & (added_area > 0)
+    accepted = accepted & (delta_ratio <= area_cap_ratio)
+    accepted_extra = candidate_extra & accepted.view(frames, 1, 1)
+    refined = torch.maximum(mask, accepted_extra.to(dtype=mask.dtype))
+
+    refined_frames = int(accepted.sum().item())
+    added_pixels = float(accepted_extra.sum().item())
+    max_delta = float(delta_ratio[accepted].max().item()) if refined_frames else 0.0
+    stats = LowerContactRefineStats(
+        enabled=True,
+        requested_grow_pixels=grow_pixels,
+        band_ratio=band_ratio,
+        area_cap_ratio=area_cap_ratio,
+        candidate_frames=int(candidate_frames.sum().item()),
+        refined_frames=refined_frames,
+        max_applied_grow_pixels=grow_pixels if refined_frames else 0,
+        base_pixels=float(base_area[has_subject].sum().item()),
+        added_pixels=added_pixels,
+        max_frame_area_delta_ratio=max_delta,
+    )
+    return refined, stats
+
+
 def _build_tensor_subject_mask(
     pose_video_mask: Any,
     *,
@@ -190,6 +400,10 @@ def _build_tensor_subject_mask(
     grow_pixels: int,
     blur_pixels: int,
     invert: bool,
+    lower_contact_refine: bool,
+    lower_contact_grow_pixels: int,
+    lower_contact_band_ratio: float,
+    lower_contact_area_cap_ratio: float,
     work_device: Any | None = None,
 ) -> ReplacementDenoiseMaskResult:
     torch = _torch_required()
@@ -199,6 +413,7 @@ def _build_tensor_subject_mask(
     selected_device = torch.device(work_device) if work_device is not None else _preferred_work_device(torch, tensor)
 
     output_chunks = []
+    lower_contact_stats = []
     raw_subject_pixels = 0.0
     chunk_frames = max(1, min(TENSOR_FAST_PATH_CHUNK_FRAMES, frames))
     for start in range(0, frames, chunk_frames):
@@ -211,6 +426,14 @@ def _build_tensor_subject_mask(
         mask_chunk = _subject_mask_chunk_from_rgb(torch, rgb)
         raw_subject_pixels += float(mask_chunk.sum().item())
         mask_chunk = _grow_mask(mask_chunk, grow_pixels)
+        mask_chunk, refine_stats = _refine_lower_contact_mask(
+            mask_chunk,
+            enabled=lower_contact_refine,
+            grow_pixels=lower_contact_grow_pixels,
+            band_ratio=lower_contact_band_ratio,
+            area_cap_ratio=lower_contact_area_cap_ratio,
+        )
+        lower_contact_stats.append(refine_stats)
         mask_chunk = _blur_mask(mask_chunk, blur_pixels)
         if invert:
             mask_chunk = 1.0 - mask_chunk
@@ -222,6 +445,7 @@ def _build_tensor_subject_mask(
         raise ValueError("pose_video_mask contains no subject pixels")
 
     mask = torch.cat(output_chunks, dim=0).contiguous()
+    merged_lower_contact_stats = _merge_lower_contact_stats(lower_contact_stats)
     _attach_scail_pose2_mask_metadata(
         mask,
         condition=condition,
@@ -244,6 +468,7 @@ def _build_tensor_subject_mask(
         input_device=input_device,
         work_device=str(selected_device),
         output_device=str(mask.device),
+        lower_contact_stats=merged_lower_contact_stats,
     )
     return ReplacementDenoiseMaskResult(
         mask=mask,
@@ -258,6 +483,7 @@ def _build_tensor_subject_mask(
         input_device=input_device,
         work_device=str(selected_device),
         output_device=str(mask.device),
+        lower_contact_refine=merged_lower_contact_stats,
     )
 
 
@@ -321,6 +547,7 @@ def _replacement_summary(
     input_device: str,
     work_device: str,
     output_device: str,
+    lower_contact_stats: LowerContactRefineStats | None,
 ) -> str:
     return (
         "replacement_denoise_mask "
@@ -336,6 +563,7 @@ def _replacement_summary(
         f"input_device={input_device} "
         f"work_device={work_device} "
         f"output_device={output_device}"
+        f" {_lower_contact_summary_fragment(lower_contact_stats)}"
         + (
             f" {diagnostics_summary_fragment(diagnostics)}"
             if diagnostics is not None
@@ -384,6 +612,12 @@ def _build_mode_passthrough_mask(
             input_device="condition",
             work_device=str(mask.device),
             output_device=str(mask.device),
+            lower_contact_stats=_disabled_lower_contact_stats(
+                enabled=False,
+                grow_pixels=0,
+                band_ratio=0.0,
+                area_cap_ratio=0.0,
+            ),
         )
         + " background_lock=disabled samples_path=disabled reason=non_replacement_mode"
     )
@@ -400,6 +634,12 @@ def _build_mode_passthrough_mask(
         input_device="condition",
         work_device=str(mask.device),
         output_device=str(mask.device),
+        lower_contact_refine=_disabled_lower_contact_stats(
+            enabled=False,
+            grow_pixels=0,
+            band_ratio=0.0,
+            area_cap_ratio=0.0,
+        ),
     )
 
 
@@ -412,6 +652,10 @@ def build_replacement_denoise_mask(
     blur_pixels: Any = 0,
     strict_replacement_mode: bool = False,
     invert: bool = False,
+    lower_contact_refine: Any = DEFAULT_LOWER_CONTACT_REFINE,
+    lower_contact_grow_pixels: Any = DEFAULT_LOWER_CONTACT_GROW_PIXELS,
+    lower_contact_band_ratio: Any = DEFAULT_LOWER_CONTACT_BAND_RATIO,
+    lower_contact_area_cap_ratio: Any = DEFAULT_LOWER_CONTACT_AREA_CAP_RATIO,
 ) -> ReplacementDenoiseMaskResult:
     """Build a ComfyUI MASK for sampler-side replacement denoising.
 
@@ -432,6 +676,23 @@ def build_replacement_denoise_mask(
         grow_pixels=grow_pixels,
         blur_pixels=blur_pixels,
     )
+    refine_lower_contact = _coerce_bool(lower_contact_refine)
+    contact_grow = _non_negative_int(
+        "lower_contact_grow_pixels",
+        lower_contact_grow_pixels,
+    )
+    contact_band_ratio = _float_in_range(
+        "lower_contact_band_ratio",
+        lower_contact_band_ratio,
+        minimum=0.05,
+        maximum=0.95,
+    )
+    contact_area_cap_ratio = _float_in_range(
+        "lower_contact_area_cap_ratio",
+        lower_contact_area_cap_ratio,
+        minimum=0.0,
+        maximum=10.0,
+    )
     if valid_condition.mode != "replacement":
         return _build_mode_passthrough_mask(
             valid_condition,
@@ -448,6 +709,10 @@ def build_replacement_denoise_mask(
                 grow_pixels=grow,
                 blur_pixels=blur,
                 invert=bool(invert),
+                lower_contact_refine=refine_lower_contact,
+                lower_contact_grow_pixels=contact_grow,
+                lower_contact_band_ratio=contact_band_ratio,
+                lower_contact_area_cap_ratio=contact_area_cap_ratio,
             )
         except RuntimeError as exc:
             if "cuda" not in str(exc).lower():
@@ -459,6 +724,10 @@ def build_replacement_denoise_mask(
                 grow_pixels=grow,
                 blur_pixels=blur,
                 invert=bool(invert),
+                lower_contact_refine=refine_lower_contact,
+                lower_contact_grow_pixels=contact_grow,
+                lower_contact_band_ratio=contact_band_ratio,
+                lower_contact_area_cap_ratio=contact_area_cap_ratio,
                 work_device="cpu",
             )
 
@@ -471,6 +740,13 @@ def build_replacement_denoise_mask(
         raise ValueError("pose_video_mask contains no subject pixels")
 
     mask = _grow_mask(mask, grow)
+    mask, lower_contact_stats = _refine_lower_contact_mask(
+        mask,
+        enabled=refine_lower_contact,
+        grow_pixels=contact_grow,
+        band_ratio=contact_band_ratio,
+        area_cap_ratio=contact_area_cap_ratio,
+    )
     mask = _blur_mask(mask, blur)
     if invert:
         mask = 1.0 - mask
@@ -500,6 +776,7 @@ def build_replacement_denoise_mask(
         input_device="python",
         work_device=str(mask.device),
         output_device=str(mask.device),
+        lower_contact_stats=lower_contact_stats,
     )
     return ReplacementDenoiseMaskResult(
         mask=mask,
@@ -514,4 +791,5 @@ def build_replacement_denoise_mask(
         input_device="python",
         work_device=str(mask.device),
         output_device=str(mask.device),
+        lower_contact_refine=lower_contact_stats,
     )

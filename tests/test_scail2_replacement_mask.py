@@ -290,6 +290,50 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
         self.assertEqual(1.0, float(blurred.mask[0, 1, 1].item()))
         self.assertAlmostEqual(4.0 / 9.0, float(blurred.mask[0, 0, 0].item()))
 
+    def test_lower_contact_refine_covers_foot_contact_without_global_overgrow(self) -> None:
+        pose_mask = []
+        for _frame in range(5):
+            frame = [[BLACK for _col in range(12)] for _row in range(12)]
+            for row in range(1, 8):
+                frame[row][5] = BLUE
+                frame[row][6] = BLUE
+            for row in range(8, 11):
+                frame[row][6] = BLUE
+            frame[10][7] = BLUE
+            pose_mask.append(frame)
+        condition = replacement_condition(
+            pose_mask=pose_mask,
+            width=12,
+            height=12,
+            frames=5,
+        )
+
+        baseline = build_replacement_denoise_mask(
+            condition=condition,
+            pose_video_mask=pose_mask,
+            grow_pixels=0,
+            blur_pixels=0,
+            lower_contact_refine=False,
+        )
+        refined = build_replacement_denoise_mask(
+            condition=condition,
+            pose_video_mask=pose_mask,
+            grow_pixels=0,
+            blur_pixels=0,
+            lower_contact_refine=True,
+            lower_contact_grow_pixels=1,
+            lower_contact_band_ratio=0.35,
+            lower_contact_area_cap_ratio=1.0,
+        )
+
+        self.assertEqual(0.0, float(baseline.mask[0, 10, 8].item()))
+        self.assertEqual(1.0, float(refined.mask[0, 10, 8].item()))
+        self.assertEqual(0.0, float(refined.mask[0, 4, 4].item()))
+        self.assertEqual(0.0, float(refined.mask[0, 0, 0].item()))
+        self.assertIn("lower_contact_refine=True", refined.summary)
+        self.assertIn("lower_contact_refined_frames=5", refined.summary)
+        self.assertIn("lower_contact_area_delta_ratio=", refined.summary)
+
     def test_mask_preset_overrides_numeric_controls(self) -> None:
         pose_mask = []
         for _frame in range(5):
