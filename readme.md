@@ -17,6 +17,7 @@ ComfyUI-SCAIL-Pose2 is a ComfyUI custom node package for SCAIL-2 pose and mask p
     - [Required Wiring](#required-wiring)
     - [Reference And Shape Tuning](#reference-and-shape-tuning)
     - [Preview Behavior](#preview-behavior)
+    - [Troubleshooting](#troubleshooting)
   - [Notes](#notes)
 - [License](#license)
 
@@ -114,6 +115,16 @@ Compatible WanVideoWrapper builds may expose SCAIL-2 strength controls on their 
 #### Preview Behavior
 
 Early sampler previews can still show a noisy or incomplete original background even when the background-lock path is wired correctly. During early denoise steps, the preserved background latent is also highly noised; judge background preservation from later previews or the final decoded output, not from the first preview frames alone.
+
+### Troubleshooting
+
+**Action inaccuracy:** for replacement mode, keep `SCAILPose2SCAIL2Condition.driving_video` wired to raw `driving_video`. Do not suppress, repaint, or replace that video before SCAIL-2 condition encoding; doing so can weaken the official pose-latent motion signal.
+
+**Source leakage:** verify the downstream samples path first. The original `driving_video` should be encoded with `SCAILPose2ReplacementDenoiseMask.mask`, and the resulting samples must reach the sampler. Subject regions should initialize from random noise, while background/preserve regions can use samples.
+
+**Stale runtime wrapper copy:** if behavior does not match this README after updating files, confirm the active ComfyUI custom-node folder is using the same ComfyUI-WanVideoWrapper fork that contains SCAIL-Pose2 replacement mask support. A copied or cached older wrapper can still ignore SCAIL-Pose2 mask metadata.
+
+**Mask coverage diagnostics:** compatible wrapper builds log `noise_mask_latent_contract`, `samples_initialization_contract`, and `samples_window_alignment_contract`. Check `subject_ratio`, `preserve_ratio`, `latent_grow_pixels`, `latent_temporal_grow_frames`, `subject_source`, and `preserve_source` to confirm covered subject pixels are not initialized from the original driving samples.
 
 ### Notes
 
