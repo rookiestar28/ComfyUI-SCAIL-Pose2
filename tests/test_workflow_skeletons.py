@@ -46,6 +46,24 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertIn((("wan_scail_reference", "ref_image"), "IMAGE"), links)
         self.assertIn((("wan_scail_pose", "pose_images"), "IMAGE"), links)
         self.assertIn((("wan_empty_embeds", "num_frames"), "INT"), links)
+        nlf_render = next(node for node in data["nodes"] if node["id"] == "nlf_render")
+        self.assertEqual(
+            {
+                "bboxes": "BBOX",
+                "render_width": "INT",
+                "render_height": "INT",
+                "pose_video_mask": "IMAGE",
+            },
+            nlf_render["optional_inputs"],
+        )
+        self.assertEqual(
+            "NLFPredictPoses.bboxes",
+            nlf_render["geometry_contract"]["bboxes_source"],
+        )
+        self.assertEqual(
+            "pose_video_mask alignment is preferred over bbox-only repair when connected",
+            nlf_render["geometry_contract"]["pose_video_mask_priority"],
+        )
 
     def test_scail2_condition_skeleton_lists_unsupported_wrapper_features(self) -> None:
         data = load_skeleton("scail2_condition_builder.json")

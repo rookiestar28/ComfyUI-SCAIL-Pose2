@@ -77,6 +77,14 @@ except ImportError:
         def update_absolute(self, _value):
             return None
 
+from .scail2.nlf_geometry import (
+    align_pose_video_to_bboxes,
+    bbox_payload_is_safe_for_render_repair,
+    format_nlf_render_bbox_diagnostics,
+    normalize_nlf_bboxes,
+    resize_bhwc_video,
+    resize_mask_video,
+)
 from .scail2.pose_alignment import align_pose_video_to_mask
 
 
@@ -351,6 +359,9 @@ class RenderNLFPoses:
             "optional": {
                 "dw_poses": ("DWPOSES", {"default": None, "tooltip": "Optional DW pose model for 2D drawing"}),
                 "ref_dw_pose": ("DWPOSES", {"default": None, "tooltip": "Optional reference DW pose model for alignment"}),
+                "bboxes": ("BBOX", {"default": None, "tooltip": "Optional NLF Predict bbox output used to diagnose and repair render geometry"}),
+                "render_width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 8, "tooltip": "Optional intermediate render width. 0 uses output width."}),
+                "render_height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 8, "tooltip": "Optional intermediate render height. 0 uses output height."}),
                 "pose_video_mask": ("IMAGE", {"default": None, "tooltip": "Optional SAM3/SCAIL-2 pose_video_mask used to align rendered pose geometry"}),
                 "draw_face": ("BOOLEAN", {"default": True, "tooltip": "Whether to draw face keypoints"}),
                 "draw_hands": ("BOOLEAN", {"default": True, "tooltip": "Whether to draw hand keypoints"}),
@@ -365,7 +376,23 @@ class RenderNLFPoses:
     FUNCTION = "predict"
     CATEGORY = "WanVideoWrapper"
 
-    def predict(self, nlf_poses, width, height, dw_poses=None, ref_dw_pose=None, pose_video_mask=None, draw_face=True, draw_hands=True, render_device="gpu", scale_hands=True, render_backend="taichi"):
+    def predict(
+        self,
+        nlf_poses,
+        width,
+        height,
+        dw_poses=None,
+        ref_dw_pose=None,
+        bboxes=None,
+        render_width=0,
+        render_height=0,
+        pose_video_mask=None,
+        draw_face=True,
+        draw_hands=True,
+        render_device="gpu",
+        scale_hands=True,
+        render_backend="taichi",
+    ):
         _require_dependency("numpy", np)
         _require_dependency("torch", torch)
 
@@ -392,10 +419,19 @@ class RenderNLFPoses:
         else:
             pose_input = nlf_poses
 
+        output_width = int(width)
+        output_height = int(height)
+        active_render_width = int(render_width) if int(render_width or 0) > 0 else output_width
+        active_render_height = int(render_height) if int(render_height or 0) > 0 else output_height
+        if output_width <= 0 or output_height <= 0:
+            raise ValueError("width and height must be positive")
+        if active_render_width <= 0 or active_render_height <= 0:
+            raise ValueError("render_width and render_height must be positive when provided")
+
         dw_pose_input = copy.deepcopy(dw_poses["poses"]) if dw_poses is not None else None
         swap_hands = dw_poses.get("swap_hands", False) if dw_poses is not None else False
 
-        ori_camera_pose = intrinsic_matrix_from_field_of_view([height, width])
+        ori_camera_pose = intrinsic_matrix_from_field_of_view([active_render_height, active_render_width])
         ori_focal = ori_camera_pose[0, 0]
 
         num_people = dw_pose_input[0]['bodies']['candidate'].shape[0] if dw_poses is not None else 0
@@ -417,8 +453,8 @@ class RenderNLFPoses:
 
             pose_3d_coco_first_driving_frame = process_data_to_COCO_format(pose_3d_first_driving_frame)
             poses_2d_ref = ref_dw_pose_input[0]['bodies']['candidate'][0][:14]
-            poses_2d_ref[:, 0] = poses_2d_ref[:, 0] * width
-            poses_2d_ref[:, 1] = poses_2d_ref[:, 1] * height
+            poses_2d_ref[:, 0] = poses_2d_ref[:, 0] * active_render_width
+            poses_2d_ref[:, 1] = poses_2d_ref[:, 1] * active_render_height
 
             poses_2d_subset = ref_dw_pose_input[0]['bodies']['subset'][0][:14]
             pose_3d_coco_first_driving_frame = pose_3d_coco_first_driving_frame[:14]
@@ -440,26 +476,30 @@ class RenderNLFPoses:
             pose_3d_coco_first_driving_frame = pose_3d_coco_first_driving_frame[valid_indices]
 
             if len(valid_lower_indices) >= 4:
-                new_camera_intrinsics, scale_m, scale_s = solve_new_camera_params_down(pose_3d_coco_first_driving_frame, ori_focal, [height, width], pose_2d_ref)
+                new_camera_intrinsics, scale_m, scale_s = solve_new_camera_params_down(pose_3d_coco_first_driving_frame, ori_focal, [active_render_height, active_render_width], pose_2d_ref)
             else:
-                new_camera_intrinsics, scale_m, scale_s = solve_new_camera_params_central(pose_3d_coco_first_driving_frame, ori_focal, [height, width], pose_2d_ref)
+                new_camera_intrinsics, scale_m, scale_s = solve_new_camera_params_central(pose_3d_coco_first_driving_frame, ori_focal, [active_render_height, active_render_width], pose_2d_ref)
 
             scale_face = scale_faces(list(dw_pose_input), list(ref_dw_pose_input))   # poses[0]['faces'].shape: 1, 68, 2  , poses_ref[0]['faces'].shape: 1, 68, 2
 
             logging.info(f"Scale - m: {scale_m}, face: {scale_face}")
-            shift_dwpose_according_to_nlf(pose_input, dw_pose_input, ori_camera_pose, new_camera_intrinsics, height, width, swap_hands=swap_hands, scale_hands=scale_hands, scale_x=scale_m, scale_y=scale_m*scale_s)
+            shift_dwpose_according_to_nlf(pose_input, dw_pose_input, ori_camera_pose, new_camera_intrinsics, active_render_height, active_render_width, swap_hands=swap_hands, scale_hands=scale_hands, scale_x=scale_m, scale_y=scale_m*scale_s)
 
             intrinsic_matrix = new_camera_intrinsics
         else:
             intrinsic_matrix = ori_camera_pose
 
         if pose_input[0].shape[0] > 1:
-            frames_np = render_multi_nlf_as_images(pose_input, dw_pose_input, height, width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=draw_face, draw_hands=draw_hands, render_backend = render_backend)
+            frames_np = render_multi_nlf_as_images(pose_input, dw_pose_input, active_render_height, active_render_width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=draw_face, draw_hands=draw_hands, render_backend = render_backend)
         else:
-            frames_np = render_nlf_as_images(pose_input, dw_pose_input, height, width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=draw_face, draw_hands=draw_hands, render_backend = render_backend)
+            frames_np = render_nlf_as_images(pose_input, dw_pose_input, active_render_height, active_render_width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=draw_face, draw_hands=draw_hands, render_backend = render_backend)
 
         frames_tensor = torch.from_numpy(np.stack(frames_np, axis=0)).contiguous() / 255.0
         frames_tensor, mask = frames_tensor[..., :3].cpu().float(), (frames_tensor[..., -1] > 0.5).cpu().float()
+
+        normalized_bboxes = normalize_nlf_bboxes(bboxes, frame_count=len(pose_input))
+        if bboxes is not None:
+            logging.info("Render NLF Poses bbox diagnostics: %s", normalized_bboxes.summary())
 
         if pose_video_mask is not None:
             alignment = align_pose_video_to_mask(
@@ -469,6 +509,48 @@ class RenderNLFPoses:
             frames_tensor = alignment.pose_video.cpu().float()
             mask = (frames_tensor[..., :3] > 0.001).any(dim=-1).float()
             logging.info("Render NLF Poses pose/mask alignment: %s", alignment.summary)
+        elif bboxes is not None:
+            can_repair, reason = bbox_payload_is_safe_for_render_repair(
+                normalized_bboxes,
+                width=active_render_width,
+                height=active_render_height,
+            )
+            logging.info(
+                "Render NLF Poses bbox geometry: %s",
+                format_nlf_render_bbox_diagnostics(
+                    pose_video=frames_tensor,
+                    target_bboxes=normalized_bboxes.boxes,
+                    target_source="nlf_bboxes",
+                    width=active_render_width,
+                    height=active_render_height,
+                    fallback_reason="none" if can_repair else reason,
+                ),
+            )
+            if can_repair:
+                alignment = align_pose_video_to_bboxes(
+                    pose_video=frames_tensor,
+                    bboxes=normalized_bboxes.boxes,
+                )
+                frames_tensor = alignment.pose_video.cpu().float()
+                mask = (frames_tensor[..., :3] > 0.001).any(dim=-1).float()
+                logging.info("Render NLF Poses bbox alignment: %s", alignment.summary)
+            else:
+                logging.warning("Render NLF Poses bbox alignment skipped: %s", reason)
+
+        if (active_render_width, active_render_height) != (output_width, output_height):
+            frames_tensor = resize_bhwc_video(
+                frames_tensor,
+                width=output_width,
+                height=output_height,
+            ).cpu().float()
+            mask = resize_mask_video(mask, width=output_width, height=output_height).cpu().float()
+            logging.info(
+                "Render NLF Poses downsampled intermediate render %sx%s to output %sx%s",
+                active_render_width,
+                active_render_height,
+                output_width,
+                output_height,
+            )
 
         return (frames_tensor, mask)
 

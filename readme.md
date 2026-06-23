@@ -89,6 +89,10 @@ Animation mode uses rendered pose images. Those images may be half the final gen
 
 For animation workflows that use this repo's `RenderNLFPoses`, connect its optional `pose_video_mask` input when the rendered skeleton foreground must be scaled and translated to the SAM3-derived mask bbox. That inline path uses the same geometry alignment core as `SCAILPose2PoseMaskGeometryAlign`; the standalone align node is mainly for already-rendered pose images or manual repair.
 
+`RenderNLFPoses` can also consume `NLFPredictPoses.bboxes` through its optional `bboxes` input. Bbox-only repair is used when `pose_video_mask` is not connected; when both are connected, `pose_video_mask` remains the stronger geometry target. The optional `render_width` and `render_height` inputs let the node render on the original/source canvas first and then downsample to the final `width` and `height`. Use this when small subjects produce tiny, shifted, or distorted NLF skeletons after direct half-resolution rendering.
+
+For half-resolution pose-control outputs, keep `width` and `height` at the required pose-output size, and set `render_width` / `render_height` to the source video canvas only when you need full-size render then downsample. Leave both at `0` for legacy behavior.
+
 Replacement mode does not use rendered NLF skeletons as the canonical condition video. Connect the original `driving_video` sequence as raw `driving_video` directly to `SCAILPose2SCAIL2Condition.driving_video` and use `SCAILPose2ColoredMask.pose_video_mask` as the semantic replacement mask. `SCAILPose2PoseMaskGeometryAlign` remains a manual repair utility for already-rendered pose images, not a required replacement-mode step.
 
 ### Replacement Mode
@@ -102,7 +106,7 @@ Replacement workflows use these repo outputs:
 
 SCAIL-2 conditioning guides subject/reference behavior; it does not hard-freeze the original background by itself. Replacement background lock also requires the downstream video encode samples path to receive the original `driving_video` and this repo's replacement denoise mask, then pass those samples into the sampler. In `animation` mode, `SCAILPose2ReplacementDenoiseMask` emits an all-`1.0` passthrough mask with metadata that disables compatible downstream background-lock samples.
 
-For replacement, `SCAILPose2SCAIL2Condition.driving_video` should receive the raw `driving_video` directly. Do not route `RenderNLFPoses` into that input for replacement mode; rendered pose skeletons cannot preserve the original subject proportions relative to the SAM3 mask. If both `pose_video` and `driving_video` are connected, the Condition node automatically uses `pose_video` for `animation` mode and `driving_video` for `replacement` mode.
+For replacement, `SCAILPose2SCAIL2Condition.driving_video` should receive the raw `driving_video` directly. Do not route `RenderNLFPoses` into that input for replacement mode; rendered pose skeletons cannot preserve the original subject proportions relative to the SAM3 mask. Both `pose_video` and `driving_video` can stay wired: the Condition node automatically uses `pose_video` for `animation` mode and `driving_video` for `replacement` mode.
 
 When original subject body shape leaks into replacement output, first verify the downstream samples/noise-mask path: original `driving_video` must be encoded with `SCAILPose2ReplacementDenoiseMask.mask`, then those samples must reach the sampler. `SCAILPose2ReplacementConditionVideo` is retained only as a legacy/experimental/manual fallback for unusual experiments, and using it may reduce pose accuracy because it changes the video that becomes SCAIL-2 pose latents.
 
