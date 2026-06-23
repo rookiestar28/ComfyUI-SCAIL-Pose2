@@ -93,6 +93,8 @@ For animation workflows that use this repo's `RenderNLFPoses`, connect its optio
 
 For half-resolution pose-control outputs, set `render_width` / `render_height` to the original/source video canvas. The old `width` and `height` inputs were removed from `RenderNLFPoses`; the output pose video is now always `render_width / 2` by `render_height / 2`.
 
+When `dw_poses` is connected, `RenderNLFPoses` renders and repairs the NLF body first, then draws DWPose face/hands at the final half-size output resolution. This prevents drifting 2D face or hand overlays from corrupting the NLF body bbox used for geometry repair.
+
 Replacement mode does not use rendered NLF skeletons as the canonical condition video. Connect the original `driving_video` sequence as raw `driving_video` directly to `SCAILPose2SCAIL2Condition.driving_video` and use `SCAILPose2ColoredMask.pose_video_mask` as the semantic replacement mask. `SCAILPose2PoseMaskGeometryAlign` remains a manual repair utility for already-rendered pose images, not a required replacement-mode step.
 
 ### Replacement Mode

@@ -97,6 +97,73 @@ def _require_dependency(name, module):
     return module
 
 
+def _overlay_dwpose_2d_on_frames(
+    *,
+    frames_tensor,
+    mask,
+    dw_pose_input,
+    draw_face,
+    draw_hands,
+):
+    if dw_pose_input is None or (not draw_face and not draw_hands):
+        return frames_tensor, mask
+    _require_dependency("numpy", np)
+    _require_dependency("torch", torch)
+
+    from .pose_draw.draw_pose_utils import draw_pose_to_canvas_np
+
+    output_height = int(frames_tensor.shape[1])
+    output_width = int(frames_tensor.shape[2])
+    overlay_frames = draw_pose_to_canvas_np(
+        dw_pose_input,
+        pool=None,
+        H=output_height,
+        W=output_width,
+        reshape_scale=0,
+        show_feet_flag=False,
+        show_body_flag=False,
+        show_cheek_flag=bool(draw_face),
+        dw_hand=True,
+        show_face_flag=bool(draw_face),
+        show_hand_flag=bool(draw_hands),
+    )
+    if len(overlay_frames) != int(frames_tensor.shape[0]):
+        logging.warning(
+            "Render NLF Poses skipped DWPose 2D overlay: frame count mismatch "
+            "rendered=%s overlay=%s",
+            int(frames_tensor.shape[0]),
+            len(overlay_frames),
+        )
+        return frames_tensor, mask
+    overlay_tensor = torch.from_numpy(np.stack(overlay_frames, axis=0)).to(
+        device=frames_tensor.device,
+        dtype=frames_tensor.dtype,
+    )
+    if overlay_tensor.numel() == 0:
+        return frames_tensor, mask
+    overlay_tensor = overlay_tensor[..., :3] / 255.0
+    active = (overlay_tensor > 0.0).any(dim=-1)
+    if not bool(active.any().item()):
+        return frames_tensor, mask
+
+    result = frames_tensor.clone()
+    result[active] = overlay_tensor[active]
+    mask_result = torch.maximum(
+        mask,
+        active.to(device=mask.device, dtype=mask.dtype),
+    )
+    logging.info(
+        "Render NLF Poses applied DWPose 2D overlay after geometry repair: "
+        "frames=%s size=%sx%s draw_face=%s draw_hands=%s",
+        int(frames_tensor.shape[0]),
+        output_width,
+        output_height,
+        bool(draw_face),
+        bool(draw_hands),
+    )
+    return result, mask_result
+
+
 def _load_vitpose_utils():
     from .vitpose_utils.utils import (
         aaposemeta_to_dwpose_scail,
@@ -484,9 +551,9 @@ class RenderNLFPoses:
             intrinsic_matrix = ori_camera_pose
 
         if pose_input[0].shape[0] > 1:
-            frames_np = render_multi_nlf_as_images(pose_input, dw_pose_input, active_render_height, active_render_width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=draw_face, draw_hands=draw_hands, render_backend = render_backend)
+            frames_np = render_multi_nlf_as_images(pose_input, None, active_render_height, active_render_width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=False, draw_hands=False, render_backend = render_backend)
         else:
-            frames_np = render_nlf_as_images(pose_input, dw_pose_input, active_render_height, active_render_width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=draw_face, draw_hands=draw_hands, render_backend = render_backend)
+            frames_np = render_nlf_as_images(pose_input, None, active_render_height, active_render_width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=False, draw_hands=False, render_backend = render_backend)
 
         frames_tensor = torch.from_numpy(np.stack(frames_np, axis=0)).contiguous() / 255.0
         frames_tensor, mask = frames_tensor[..., :3].cpu().float(), (frames_tensor[..., -1] > 0.5).cpu().float()
@@ -543,6 +610,13 @@ class RenderNLFPoses:
             active_render_height,
             output_width,
             output_height,
+        )
+        frames_tensor, mask = _overlay_dwpose_2d_on_frames(
+            frames_tensor=frames_tensor,
+            mask=mask,
+            dw_pose_input=dw_pose_input,
+            draw_face=draw_face,
+            draw_hands=draw_hands,
         )
 
         return (frames_tensor, mask)
