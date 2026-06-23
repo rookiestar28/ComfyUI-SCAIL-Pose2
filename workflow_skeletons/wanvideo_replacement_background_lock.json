@@ -41,9 +41,10 @@
       "input_order": ["pose_video", "driving_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"],
       "reference_geometry_alignment": {
         "mode": "replacement_only_auto",
-        "fit_mode_default": "contain",
-        "anchor_default": "bottom_center",
+        "fit_mode_default": "auto",
+        "anchor_default": "auto",
         "target_frame_policy_default": "median_bbox",
+        "control_region_default": "auto",
         "bbox_margin_default": 0,
         "max_scale_default": 2.0,
         "min_mask_area_ratio_default": 0.0005

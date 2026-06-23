@@ -16,6 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_NAME = "ComfyUI_SCAIL_Pose2_ReferenceAlignmentTestPackage"
 
 
+def _upper_bbox(tensor, *, rows: int):
+    return frame_bboxes(tensor[:, :rows], kind="semantic_rgb_mask")[0]
+
+
 def import_root_package():
     for name in list(sys.modules):
         if name == PACKAGE_NAME or name.startswith(f"{PACKAGE_NAME}."):
@@ -80,6 +84,72 @@ class Scail2ReferenceAlignmentTests(unittest.TestCase):
         self.assertIn("reference_geometry_alignment", result.summary)
         self.assertIn("target_size=8x8", result.summary)
 
+    def test_auto_upper_subject_control_corrects_local_portrait_offset(self) -> None:
+        torch = self.torch
+        ref_image = torch.zeros((1, 16, 10, 3), dtype=torch.float32)
+        ref_mask = torch.zeros((1, 16, 10, 3), dtype=torch.float32)
+        pose_video_mask = torch.zeros((1, 16, 10, 3), dtype=torch.float32)
+
+        ref_image[0, 0:6, 3:8, 0] = 1.0
+        ref_image[0, 7:16, 0:10, 1] = 1.0
+        ref_mask[0, 0:6, 3:8, :] = torch.tensor([0.0, 0.0, 1.0])
+        ref_mask[0, 7:16, 0:10, :] = torch.tensor([0.0, 0.0, 1.0])
+
+        pose_video_mask[0, 0:6, 1:6, 2] = 1.0
+        pose_video_mask[0, 7:16, 0:10, 2] = 1.0
+
+        subject_result = align_reference_image_geometry(
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            pose_video_mask=pose_video_mask,
+            fit_mode="contain",
+            anchor="bottom_center",
+            control_region="subject",
+        )
+        auto_result = align_reference_image_geometry(
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            pose_video_mask=pose_video_mask,
+            fit_mode="auto",
+            anchor="auto",
+            control_region="auto",
+        )
+
+        self.assertEqual(
+            (3.0, 0.0, 8.0, 6.0),
+            _upper_bbox(subject_result.ref_mask, rows=6).to_tuple(),
+        )
+        self.assertEqual(
+            (1.0, 0.0, 6.0, 6.0),
+            _upper_bbox(auto_result.ref_mask, rows=6).to_tuple(),
+        )
+        self.assertEqual("upper_subject", auto_result.control_region)
+        self.assertEqual("center", auto_result.effective_anchor)
+        self.assertIn("effective_control_region=upper_subject", auto_result.summary)
+
+    def test_auto_control_region_preserves_tall_full_body_profile(self) -> None:
+        torch = self.torch
+        ref_image = torch.zeros((1, 20, 6, 3), dtype=torch.float32)
+        ref_mask = torch.zeros((1, 20, 6, 3), dtype=torch.float32)
+        pose_video_mask = torch.zeros((1, 20, 6, 3), dtype=torch.float32)
+
+        ref_image[0, 0:20, 2:4, 0] = 1.0
+        ref_mask[0, 0:20, 2:4, :] = torch.tensor([0.0, 0.0, 1.0])
+        pose_video_mask[0, 0:20, 2:4, 2] = 1.0
+
+        result = align_reference_image_geometry(
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            pose_video_mask=pose_video_mask,
+            fit_mode="auto",
+            anchor="auto",
+            control_region="auto",
+        )
+
+        self.assertEqual("subject", result.control_region)
+        self.assertEqual("bottom_center", result.effective_anchor)
+        self.assertEqual("contain", result.effective_fit_mode)
+
     def test_alignment_rejects_empty_reference_mask(self) -> None:
         torch = self.torch
         ref_image = torch.zeros((1, 10, 6, 3), dtype=torch.float32)
@@ -106,15 +176,17 @@ class Scail2ReferenceAlignmentTests(unittest.TestCase):
         self.assertIn("reference_fit_mode", required)
         self.assertIn("reference_anchor", required)
         self.assertIn("reference_target_frame_policy", required)
+        self.assertIn("reference_control_region", required)
         self.assertIn("reference_bbox_margin", required)
         self.assertIn("reference_max_scale", required)
         self.assertIn("reference_min_mask_area_ratio", required)
-        self.assertEqual("contain", required["reference_fit_mode"][1]["default"])
-        self.assertEqual("bottom_center", required["reference_anchor"][1]["default"])
+        self.assertEqual("auto", required["reference_fit_mode"][1]["default"])
+        self.assertEqual("auto", required["reference_anchor"][1]["default"])
         self.assertEqual(
             "median_bbox",
             required["reference_target_frame_policy"][1]["default"],
         )
+        self.assertEqual("auto", required["reference_control_region"][1]["default"])
 
     def test_condition_replacement_auto_aligns_reference_geometry(self) -> None:
         package = import_root_package()

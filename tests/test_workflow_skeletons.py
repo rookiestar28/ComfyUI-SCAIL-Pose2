@@ -372,6 +372,20 @@ class WorkflowSkeletonTests(unittest.TestCase):
         embeds_node = next(
             node for node in data["nodes"] if node["id"] == "wan_scail2_condition_embeds"
         )
+        condition_node = next(node for node in data["nodes"] if node["id"] == "scail2_condition")
+        self.assertEqual(
+            {
+                "mode": "replacement_only_auto",
+                "fit_mode_default": "auto",
+                "anchor_default": "auto",
+                "target_frame_policy_default": "median_bbox",
+                "control_region_default": "auto",
+                "bbox_margin_default": 0,
+                "max_scale_default": 2.0,
+                "min_mask_area_ratio_default": 0.0005,
+            },
+            condition_node["reference_geometry_alignment"],
+        )
         self.assertEqual(
             {
                 "ref_image_strength": 1.0,

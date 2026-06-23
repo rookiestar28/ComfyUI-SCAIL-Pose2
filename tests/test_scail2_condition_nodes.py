@@ -102,6 +102,7 @@ class Scail2ConditionNodeTests(unittest.TestCase):
                 "reference_fit_mode",
                 "reference_anchor",
                 "reference_target_frame_policy",
+                "reference_control_region",
                 "reference_bbox_margin",
                 "reference_max_scale",
                 "reference_min_mask_area_ratio",
@@ -109,16 +110,20 @@ class Scail2ConditionNodeTests(unittest.TestCase):
             tuple(input_types["required"]),
         )
         self.assertEqual(
-            "contain",
+            "auto",
             input_types["required"]["reference_fit_mode"][1]["default"],
         )
         self.assertEqual(
-            "bottom_center",
+            "auto",
             input_types["required"]["reference_anchor"][1]["default"],
         )
         self.assertEqual(
             "median_bbox",
             input_types["required"]["reference_target_frame_policy"][1]["default"],
+        )
+        self.assertEqual(
+            "auto",
+            input_types["required"]["reference_control_region"][1]["default"],
         )
         self.assertEqual(
             ["animation", "replacement"],
