@@ -49,9 +49,15 @@ class WorkflowSkeletonTests(unittest.TestCase):
         nlf_render = next(node for node in data["nodes"] if node["id"] == "nlf_render")
         self.assertEqual(
             {
-                "bboxes": "BBOX",
+                "nlf_poses": "NLFPRED",
                 "render_width": "INT",
                 "render_height": "INT",
+            },
+            nlf_render["required_inputs"],
+        )
+        self.assertEqual(
+            {
+                "bboxes": "BBOX",
                 "pose_video_mask": "IMAGE",
             },
             nlf_render["optional_inputs"],
@@ -59,6 +65,10 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(
             "NLFPredictPoses.bboxes",
             nlf_render["geometry_contract"]["bboxes_source"],
+        )
+        self.assertEqual(
+            "render on render_width/render_height and emit half-size IMAGE/MASK",
+            nlf_render["geometry_contract"]["render_width_height_policy"],
         )
         self.assertEqual(
             "pose_video_mask alignment is preferred over bbox-only repair when connected",

@@ -353,15 +353,13 @@ class RenderNLFPoses:
     def INPUT_TYPES(s):
         return {"required": {
             "nlf_poses": ("NLFPRED", {"tooltip": "Input poses for the model"}),
-            "width": ("INT", {"default": 512}),
-            "height": ("INT", {"default": 512}),
+            "render_width": ("INT", {"default": 1024, "min": 2, "max": 8192, "step": 8, "tooltip": "Source render width. Output pose video width is render_width / 2."}),
+            "render_height": ("INT", {"default": 1024, "min": 2, "max": 8192, "step": 8, "tooltip": "Source render height. Output pose video height is render_height / 2."}),
             },
             "optional": {
                 "dw_poses": ("DWPOSES", {"default": None, "tooltip": "Optional DW pose model for 2D drawing"}),
                 "ref_dw_pose": ("DWPOSES", {"default": None, "tooltip": "Optional reference DW pose model for alignment"}),
                 "bboxes": ("BBOX", {"default": None, "tooltip": "Optional NLF Predict bbox output used to diagnose and repair render geometry"}),
-                "render_width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 8, "tooltip": "Optional intermediate render width. 0 uses output width."}),
-                "render_height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 8, "tooltip": "Optional intermediate render height. 0 uses output height."}),
                 "pose_video_mask": ("IMAGE", {"default": None, "tooltip": "Optional SAM3/SCAIL-2 pose_video_mask used to align rendered pose geometry"}),
                 "draw_face": ("BOOLEAN", {"default": True, "tooltip": "Whether to draw face keypoints"}),
                 "draw_hands": ("BOOLEAN", {"default": True, "tooltip": "Whether to draw hand keypoints"}),
@@ -379,13 +377,11 @@ class RenderNLFPoses:
     def predict(
         self,
         nlf_poses,
-        width,
-        height,
+        render_width,
+        render_height,
         dw_poses=None,
         ref_dw_pose=None,
         bboxes=None,
-        render_width=0,
-        render_height=0,
         pose_video_mask=None,
         draw_face=True,
         draw_hands=True,
@@ -419,14 +415,12 @@ class RenderNLFPoses:
         else:
             pose_input = nlf_poses
 
-        output_width = int(width)
-        output_height = int(height)
-        active_render_width = int(render_width) if int(render_width or 0) > 0 else output_width
-        active_render_height = int(render_height) if int(render_height or 0) > 0 else output_height
-        if output_width <= 0 or output_height <= 0:
-            raise ValueError("width and height must be positive")
+        active_render_width = int(render_width)
+        active_render_height = int(render_height)
         if active_render_width <= 0 or active_render_height <= 0:
-            raise ValueError("render_width and render_height must be positive when provided")
+            raise ValueError("render_width and render_height must be positive")
+        output_width = max(active_render_width // 2, 1)
+        output_height = max(active_render_height // 2, 1)
 
         dw_pose_input = copy.deepcopy(dw_poses["poses"]) if dw_poses is not None else None
         swap_hands = dw_poses.get("swap_hands", False) if dw_poses is not None else False
@@ -537,20 +531,19 @@ class RenderNLFPoses:
             else:
                 logging.warning("Render NLF Poses bbox alignment skipped: %s", reason)
 
-        if (active_render_width, active_render_height) != (output_width, output_height):
-            frames_tensor = resize_bhwc_video(
-                frames_tensor,
-                width=output_width,
-                height=output_height,
-            ).cpu().float()
-            mask = resize_mask_video(mask, width=output_width, height=output_height).cpu().float()
-            logging.info(
-                "Render NLF Poses downsampled intermediate render %sx%s to output %sx%s",
-                active_render_width,
-                active_render_height,
-                output_width,
-                output_height,
-            )
+        frames_tensor = resize_bhwc_video(
+            frames_tensor,
+            width=output_width,
+            height=output_height,
+        ).cpu().float()
+        mask = resize_mask_video(mask, width=output_width, height=output_height).cpu().float()
+        logging.info(
+            "Render NLF Poses downsampled render %sx%s to half-size output %sx%s",
+            active_render_width,
+            active_render_height,
+            output_width,
+            output_height,
+        )
 
         return (frames_tensor, mask)
 

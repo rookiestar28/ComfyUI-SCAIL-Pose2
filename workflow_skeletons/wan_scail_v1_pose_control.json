@@ -8,15 +8,18 @@
       "id": "nlf_render",
       "class_type": "RenderNLFPoses",
       "role": "pose_image_source",
+      "required_inputs": {
+        "nlf_poses": "NLFPRED",
+        "render_width": "INT",
+        "render_height": "INT"
+      },
       "optional_inputs": {
         "bboxes": "BBOX",
-        "render_width": "INT",
-        "render_height": "INT",
         "pose_video_mask": "IMAGE"
       },
       "geometry_contract": {
         "bboxes_source": "NLFPredictPoses.bboxes",
-        "render_width_height_policy": "0 uses output size; positive values render on an intermediate source canvas before downsampling",
+        "render_width_height_policy": "render on render_width/render_height and emit half-size IMAGE/MASK",
         "pose_video_mask_priority": "pose_video_mask alignment is preferred over bbox-only repair when connected"
       },
       "outputs": {

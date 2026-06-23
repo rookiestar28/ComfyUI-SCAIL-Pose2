@@ -66,19 +66,23 @@ class V1PosePipelineTests(unittest.TestCase):
         self.assertEqual(("IMAGE", "MASK"), render_node.RETURN_TYPES)
         self.assertEqual(("image", "mask"), render_node.RETURN_NAMES)
 
-    def test_render_nlf_poses_exposes_optional_pose_video_mask_alignment(self) -> None:
+    def test_render_nlf_poses_exposes_half_output_render_dimensions(self) -> None:
         package = import_root_package()
         render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]
+        required = render_node.INPUT_TYPES()["required"]
         optional = render_node.INPUT_TYPES()["optional"]
 
+        self.assertEqual(("nlf_poses", "render_width", "render_height"), tuple(required))
+        self.assertNotIn("width", required)
+        self.assertNotIn("height", required)
+        self.assertEqual("INT", required["render_width"][0])
+        self.assertEqual("INT", required["render_height"][0])
         self.assertIn("pose_video_mask", optional)
         self.assertEqual("IMAGE", optional["pose_video_mask"][0])
         self.assertIn("bboxes", optional)
         self.assertEqual("BBOX", optional["bboxes"][0])
-        self.assertIn("render_width", optional)
-        self.assertEqual("INT", optional["render_width"][0])
-        self.assertIn("render_height", optional)
-        self.assertEqual("INT", optional["render_height"][0])
+        self.assertNotIn("render_width", optional)
+        self.assertNotIn("render_height", optional)
 
     def test_render_nlf_poses_applies_optional_bbox_alignment(self) -> None:
         try:
@@ -135,11 +139,11 @@ class V1PosePipelineTests(unittest.TestCase):
             )
 
             self.assertEqual(
-                (4.0, 4.0, 8.0, 8.0),
+                (2.0, 2.0, 4.0, 4.0),
                 frame_bboxes(aligned_image, kind="pose_image")[0].to_tuple(),
             )
             self.assertEqual(
-                (4.0, 4.0, 8.0, 8.0),
+                (2.0, 2.0, 4.0, 4.0),
                 frame_bboxes(aligned_mask, kind="mask")[0].to_tuple(),
             )
         finally:
@@ -149,7 +153,7 @@ class V1PosePipelineTests(unittest.TestCase):
                 else:
                     sys.modules[name] = original_module
 
-    def test_render_nlf_poses_can_render_full_size_then_downsample(self) -> None:
+    def test_render_nlf_poses_renders_source_size_then_emits_half_output(self) -> None:
         try:
             import numpy as np
             import torch
@@ -199,10 +203,8 @@ class V1PosePipelineTests(unittest.TestCase):
 
             image, mask = render_node.predict(
                 pose_input,
-                8,
-                8,
-                render_width=16,
-                render_height=16,
+                16,
+                16,
                 render_backend="torch",
             )
 
@@ -273,10 +275,10 @@ class V1PosePipelineTests(unittest.TestCase):
                 render_backend="torch",
             )
 
-            self.assertEqual((0.0, 0.0, 2.0, 2.0), frame_bboxes(raw_image, kind="pose_image")[0].to_tuple())
-            self.assertEqual((4.0, 4.0, 8.0, 8.0), frame_bboxes(aligned_image, kind="pose_image")[0].to_tuple())
-            self.assertEqual((0.0, 0.0, 2.0, 2.0), frame_bboxes(raw_mask, kind="mask")[0].to_tuple())
-            self.assertEqual((4.0, 4.0, 8.0, 8.0), frame_bboxes(aligned_mask, kind="mask")[0].to_tuple())
+            self.assertEqual((0.0, 0.0, 1.0, 1.0), frame_bboxes(raw_image, kind="pose_image")[0].to_tuple())
+            self.assertEqual((2.0, 2.0, 4.0, 4.0), frame_bboxes(aligned_image, kind="pose_image")[0].to_tuple())
+            self.assertEqual((0.0, 0.0, 1.0, 1.0), frame_bboxes(raw_mask, kind="mask")[0].to_tuple())
+            self.assertEqual((2.0, 2.0, 4.0, 4.0), frame_bboxes(aligned_mask, kind="mask")[0].to_tuple())
         finally:
             for name, original_module in original_modules.items():
                 if original_module is None:
