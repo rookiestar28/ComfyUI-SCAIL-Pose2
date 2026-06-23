@@ -288,6 +288,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
             {
                 "SCAILPose2ColoredMask",
                 "SCAILPose2SCAIL2Condition",
+                "SCAILPose2ReferenceImageGeometryAlign",
                 "SCAILPose2ReplacementDenoiseMask",
                 "WanVideoEncode",
                 "WanVideoAddSCAIL2ConditionEmbeds",
@@ -308,6 +309,38 @@ class WorkflowSkeletonTests(unittest.TestCase):
             (
                 ("workflow_inputs", "driving_video"),
                 ("scail2_condition", "driving_video"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("workflow_inputs", "ref_image"),
+                ("reference_geometry_align", "ref_image"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("colored_masks", "reference_image_mask"),
+                ("reference_geometry_align", "ref_mask"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("reference_geometry_align", "ref_image"),
+                ("scail2_condition", "ref_image"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("reference_geometry_align", "ref_mask"),
+                ("scail2_condition", "ref_mask"),
                 "IMAGE",
             ),
             links,
@@ -368,6 +401,10 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertTrue(sampler["required_settings"]["add_noise_to_samples"])
         contract = data["background_lock_contract"]
         self.assertEqual("driving_video", contract["encode_driving_video_socket"])
+        self.assertEqual(
+            "SCAILPose2ReferenceImageGeometryAlign.ref_image/ref_mask",
+            contract["reference_geometry_source"],
+        )
         self.assertTrue(contract["required"])
         self.assertFalse(contract["conditioning_alone_hard_preserves_background"])
         self.assertEqual(1.0, contract["mask_polarity"]["subject_replace_area"])

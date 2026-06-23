@@ -8,6 +8,7 @@ __all__ = [
     "masks",
     "pose_alignment",
     "preprocessing",
+    "reference_alignment",
     "replacement_mask",
     "replacement_preview",
     "sam3_preprocessing",

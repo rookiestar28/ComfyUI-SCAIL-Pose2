@@ -13,6 +13,11 @@ from .scail2.observability import (
     perf_counter_ms,
     safe_value_summary,
 )
+from .scail2.geometry import frame_bboxes, frame_size
+from .scail2.reference_alignment import (
+    reference_geometry_is_aligned,
+    reference_geometry_summary,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -119,6 +124,92 @@ def _select_mode_video_source(
     return pose_video
 
 
+def _source_kind_for_reference_geometry(ref_image: Any, ref_mask: Any) -> str:
+    base = "comfy_node:SCAILPose2SCAIL2Condition"
+    if reference_geometry_is_aligned(ref_image, ref_mask):
+        return f"{base}:reference_geometry_aligned"
+    return base
+
+
+def _first_bbox(value: Any):
+    for bbox in frame_bboxes(value, kind="semantic_rgb_mask"):
+        if bbox is not None and bbox.area > 0:
+            return bbox
+    return None
+
+
+def _log_replacement_reference_geometry(
+    *,
+    ref_image: Any,
+    ref_mask: Any,
+    pose_video_mask: Any,
+) -> None:
+    if reference_geometry_is_aligned(ref_image, ref_mask):
+        LOGGER.info(
+            "SCAIL-Pose2 replacement reference geometry aligned: %s",
+            reference_geometry_summary(ref_image, ref_mask) or "summary=unavailable",
+        )
+        return
+
+    try:
+        ref_image_size = frame_size(ref_image, kind="pose_image")
+        ref_mask_size = frame_size(ref_mask, kind="semantic_rgb_mask")
+        target_size = frame_size(pose_video_mask, kind="semantic_rgb_mask")
+    except Exception as exc:
+        LOGGER.info(
+            "SCAIL-Pose2 replacement reference geometry diagnostic unavailable: %s",
+            exc,
+        )
+        return
+
+    if ref_image_size != target_size or ref_mask_size != target_size:
+        LOGGER.warning(
+            "SCAIL-Pose2 replacement reference geometry is not target-canvas aligned: "
+            "ref_image_size=%s ref_mask_size=%s target_mask_size=%s. "
+            "Use SCAIL-Pose2 Reference Image Geometry Align before Condition when "
+            "reference crop/aspect differs from the driving subject.",
+            ref_image_size,
+            ref_mask_size,
+            target_size,
+        )
+
+    try:
+        ref_bbox = _first_bbox(ref_mask)
+        target_bbox = _first_bbox(pose_video_mask)
+    except Exception as exc:
+        LOGGER.info(
+            "SCAIL-Pose2 replacement reference bbox diagnostic unavailable: %s",
+            exc,
+        )
+        return
+    if ref_bbox is None or target_bbox is None:
+        return
+    ref_h, ref_w = ref_mask_size
+    target_h, target_w = target_size
+    ref_cx = ref_bbox.center_x / max(ref_w, 1)
+    ref_cy = ref_bbox.center_y / max(ref_h, 1)
+    target_cx = target_bbox.center_x / max(target_w, 1)
+    target_cy = target_bbox.center_y / max(target_h, 1)
+    center_delta = ((ref_cx - target_cx) ** 2 + (ref_cy - target_cy) ** 2) ** 0.5
+    ref_height_ratio = ref_bbox.height / max(ref_h, 1)
+    target_height_ratio = target_bbox.height / max(target_h, 1)
+    height_ratio = (
+        ref_height_ratio / target_height_ratio
+        if target_height_ratio > 0.0
+        else 0.0
+    )
+    if center_delta > 0.15 or height_ratio < 0.50 or height_ratio > 2.0:
+        LOGGER.warning(
+            "SCAIL-Pose2 replacement reference bbox differs from driving bbox: "
+            "ref_bbox=%s target_bbox=%s normalized_center_delta=%.4f "
+            "normalized_height_ratio=%.4f",
+            ref_bbox.to_tuple(),
+            target_bbox.to_tuple(),
+            center_delta,
+            height_ratio,
+        )
+
+
 class SCAILPose2SCAIL2Condition:
     @classmethod
     def INPUT_TYPES(cls):
@@ -187,6 +278,11 @@ class SCAILPose2SCAIL2Condition:
                 "condition video source; sparse NLF skeleton-to-mask bbox "
                 "validation is not applied."
             )
+            _log_replacement_reference_geometry(
+                ref_image=ref_image,
+                ref_mask=ref_mask,
+                pose_video_mask=pose_video_mask,
+            )
         condition = build_user_mask_condition(
             mode=mode,
             ref_image=ref_image,
@@ -201,7 +297,7 @@ class SCAILPose2SCAIL2Condition:
             height=height,
             additional_ref_images=additional_images,
             additional_ref_masks=additional_masks,
-            source_kind="comfy_node:SCAILPose2SCAIL2Condition",
+            source_kind=_source_kind_for_reference_geometry(ref_image, ref_mask),
         )
         progress.update()
         LOGGER.info(
