@@ -94,49 +94,37 @@ class Scail2ReferenceAlignmentTests(unittest.TestCase):
                 pose_video_mask=pose_video_mask,
             )
 
-    def test_root_package_registers_reference_alignment_node(self) -> None:
+    def test_root_package_does_not_register_reference_alignment_node(self) -> None:
         package = import_root_package()
 
-        self.assertIn("SCAILPose2ReferenceImageGeometryAlign", package.NODE_CLASS_MAPPINGS)
-        node_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2ReferenceImageGeometryAlign"]
-        self.assertEqual(("IMAGE", "IMAGE", "STRING"), node_cls.RETURN_TYPES)
-        self.assertEqual(("ref_image", "ref_mask", "summary"), node_cls.RETURN_NAMES)
-        required = node_cls.INPUT_TYPES()["required"]
-        self.assertEqual(
-            (
-                "ref_image",
-                "ref_mask",
-                "pose_video_mask",
-                "fit_mode",
-                "anchor",
-                "target_frame_policy",
-                "bbox_margin",
-                "max_scale",
-                "min_mask_area_ratio",
-            ),
-            tuple(required),
+        self.assertNotIn(
+            "SCAILPose2ReferenceImageGeometryAlign",
+            package.NODE_CLASS_MAPPINGS,
         )
-        self.assertNotIn("width", required)
-        self.assertNotIn("height", required)
-        self.assertEqual("contain", required["fit_mode"][1]["default"])
-        self.assertEqual("bottom_center", required["anchor"][1]["default"])
-        self.assertEqual("median_bbox", required["target_frame_policy"][1]["default"])
+        condition_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2SCAIL2Condition"]
+        required = condition_cls.INPUT_TYPES()["required"]
+        self.assertIn("reference_fit_mode", required)
+        self.assertIn("reference_anchor", required)
+        self.assertIn("reference_target_frame_policy", required)
+        self.assertIn("reference_bbox_margin", required)
+        self.assertIn("reference_max_scale", required)
+        self.assertIn("reference_min_mask_area_ratio", required)
+        self.assertEqual("contain", required["reference_fit_mode"][1]["default"])
+        self.assertEqual("bottom_center", required["reference_anchor"][1]["default"])
+        self.assertEqual(
+            "median_bbox",
+            required["reference_target_frame_policy"][1]["default"],
+        )
 
-    def test_reference_alignment_node_executes_and_marks_condition_source_kind(self) -> None:
+    def test_condition_replacement_auto_aligns_reference_geometry(self) -> None:
         package = import_root_package()
-        align_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2ReferenceImageGeometryAlign"]
         condition_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2SCAIL2Condition"]
         ref_image, ref_mask, pose_video_mask = self._reference_inputs()
 
-        aligned_ref, aligned_mask, summary = align_cls().align(
-            ref_image,
-            ref_mask,
-            pose_video_mask,
-        )
         condition, = condition_cls().build(
             pose_video_mask=pose_video_mask[:1],
-            ref_image=aligned_ref,
-            ref_mask=aligned_mask,
+            ref_image=ref_image,
+            ref_mask=ref_mask,
             mode="replacement",
             width=8,
             height=8,
@@ -144,9 +132,34 @@ class Scail2ReferenceAlignmentTests(unittest.TestCase):
             driving_video=self.torch.zeros((1, 8, 8, 3), dtype=self.torch.float32),
         )
 
-        self.assertIn("reference_geometry_alignment", summary)
         self.assertEqual("replacement", condition.mode)
+        self.assertEqual((1, 8, 8, 3), tuple(condition.ref_image.shape))
+        self.assertEqual((1, 8, 8), tuple(condition.ref_mask_indices.shape))
         self.assertTrue(condition.source_kind.endswith(":reference_geometry_aligned"))
+
+    def test_condition_animation_skips_reference_geometry_alignment(self) -> None:
+        package = import_root_package()
+        condition_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2SCAIL2Condition"]
+        torch = self.torch
+        ref_image = torch.zeros((1, 8, 8, 3), dtype=torch.float32)
+        ref_mask = torch.ones((1, 8, 8, 3), dtype=torch.float32)
+        pose_video_mask = torch.zeros((1, 8, 8, 3), dtype=torch.float32)
+        ref_mask[0, 2:6, 3:5, :] = torch.tensor([0.0, 0.0, 1.0])
+        pose_video_mask[0, 1:7, 2:6, 2] = 1.0
+
+        condition, = condition_cls().build(
+            pose_video_mask=pose_video_mask,
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            mode="animation",
+            width=8,
+            height=8,
+            num_frames=1,
+            pose_video=torch.zeros((1, 8, 8, 3), dtype=torch.float32),
+        )
+
+        self.assertIs(condition.ref_image, ref_image)
+        self.assertFalse(condition.source_kind.endswith(":reference_geometry_aligned"))
 
 
 if __name__ == "__main__":

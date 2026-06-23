@@ -288,13 +288,13 @@ class WorkflowSkeletonTests(unittest.TestCase):
             {
                 "SCAILPose2ColoredMask",
                 "SCAILPose2SCAIL2Condition",
-                "SCAILPose2ReferenceImageGeometryAlign",
                 "SCAILPose2ReplacementDenoiseMask",
                 "WanVideoEncode",
                 "WanVideoAddSCAIL2ConditionEmbeds",
                 wanvideo_contracts.NODE_WAN_SAMPLER_V2,
             }.issubset(class_types)
         )
+        self.assertNotIn("SCAILPose2ReferenceImageGeometryAlign", class_types)
         self.assertNotIn("RenderNLFPoses", class_types)
         self.assertNotIn("SCAILPose2ReplacementConditionVideo", class_types)
         self.assertIn(
@@ -316,22 +316,6 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertIn(
             (
                 ("workflow_inputs", "ref_image"),
-                ("reference_geometry_align", "ref_image"),
-                "IMAGE",
-            ),
-            links,
-        )
-        self.assertIn(
-            (
-                ("colored_masks", "reference_image_mask"),
-                ("reference_geometry_align", "ref_mask"),
-                "IMAGE",
-            ),
-            links,
-        )
-        self.assertIn(
-            (
-                ("reference_geometry_align", "ref_image"),
                 ("scail2_condition", "ref_image"),
                 "IMAGE",
             ),
@@ -339,7 +323,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                ("reference_geometry_align", "ref_mask"),
+                ("colored_masks", "reference_image_mask"),
                 ("scail2_condition", "ref_mask"),
                 "IMAGE",
             ),
@@ -402,7 +386,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         contract = data["background_lock_contract"]
         self.assertEqual("driving_video", contract["encode_driving_video_socket"])
         self.assertEqual(
-            "SCAILPose2ReferenceImageGeometryAlign.ref_image/ref_mask",
+            "SCAILPose2SCAIL2Condition.replacement_only_auto_alignment",
             contract["reference_geometry_source"],
         )
         self.assertTrue(contract["required"])

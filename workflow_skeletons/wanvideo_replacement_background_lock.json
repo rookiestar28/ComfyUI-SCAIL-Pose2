@@ -33,25 +33,21 @@
       ]
     },
     {
-      "id": "reference_geometry_align",
-      "class_type": "SCAILPose2ReferenceImageGeometryAlign",
-      "role": "replacement_reference_image_mask_canvas_alignment",
-      "fit_mode_default": "contain",
-      "anchor_default": "bottom_center",
-      "target_frame_policy_default": "median_bbox",
-      "outputs": [
-        { "name": "ref_image", "type": "IMAGE" },
-        { "name": "ref_mask", "type": "IMAGE" },
-        { "name": "summary", "type": "STRING" }
-      ]
-    },
-    {
       "id": "scail2_condition",
       "class_type": "SCAILPose2SCAIL2Condition",
       "role": "validated_replacement_condition_builder_driving_video_source",
       "mode": "replacement",
       "output_type": "SCAIL2_CONDITION",
       "input_order": ["pose_video", "driving_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"],
+      "reference_geometry_alignment": {
+        "mode": "replacement_only_auto",
+        "fit_mode_default": "contain",
+        "anchor_default": "bottom_center",
+        "target_frame_policy_default": "median_bbox",
+        "bbox_margin_default": 0,
+        "max_scale_default": 2.0,
+        "min_mask_area_ratio_default": 0.0005
+      },
       "mode_video_sources": {
         "animation": "pose_video",
         "replacement": "driving_video"
@@ -153,26 +149,11 @@
     },
     {
       "from": ["workflow_inputs", "ref_image"],
-      "to": ["reference_geometry_align", "ref_image"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["colored_masks", "reference_image_mask"],
-      "to": ["reference_geometry_align", "ref_mask"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["colored_masks", "pose_video_mask"],
-      "to": ["reference_geometry_align", "pose_video_mask"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["reference_geometry_align", "ref_image"],
       "to": ["scail2_condition", "ref_image"],
       "type": "IMAGE"
     },
     {
-      "from": ["reference_geometry_align", "ref_mask"],
+      "from": ["colored_masks", "reference_image_mask"],
       "to": ["scail2_condition", "ref_mask"],
       "type": "IMAGE"
     },
@@ -232,7 +213,7 @@
     "required": true,
     "conditioning_alone_hard_preserves_background": false,
     "mask_source": "SCAILPose2ReplacementDenoiseMask.mask",
-    "reference_geometry_source": "SCAILPose2ReferenceImageGeometryAlign.ref_image/ref_mask",
+    "reference_geometry_source": "SCAILPose2SCAIL2Condition.replacement_only_auto_alignment",
     "encode_node": "WanVideoEncode",
     "encode_driving_video_socket": "driving_video",
     "encode_mask_socket": "mask",

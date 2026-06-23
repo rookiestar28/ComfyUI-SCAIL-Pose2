@@ -15,6 +15,7 @@ from .scail2.observability import (
 )
 from .scail2.geometry import frame_bboxes, frame_size
 from .scail2.reference_alignment import (
+    align_reference_image_geometry,
     reference_geometry_is_aligned,
     reference_geometry_summary,
 )
@@ -131,6 +132,45 @@ def _source_kind_for_reference_geometry(ref_image: Any, ref_mask: Any) -> str:
     return base
 
 
+def _align_replacement_reference_geometry(
+    *,
+    ref_image: Any,
+    ref_mask: Any,
+    pose_video_mask: Any,
+    fit_mode: str,
+    anchor: str,
+    target_frame_policy: str,
+    bbox_margin: int,
+    max_scale: float,
+    min_mask_area_ratio: float,
+) -> tuple[Any, Any]:
+    try:
+        result = align_reference_image_geometry(
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            pose_video_mask=pose_video_mask,
+            fit_mode=fit_mode,
+            anchor=anchor,
+            target_frame_policy=target_frame_policy,
+            bbox_margin=bbox_margin,
+            max_scale=max_scale,
+            min_mask_area_ratio=min_mask_area_ratio,
+        )
+    except (RuntimeError, TypeError, ValueError) as exc:
+        LOGGER.warning(
+            "SCAIL-Pose2 replacement reference geometry alignment skipped; "
+            "falling back to direct ref_image/ref_mask. reason=%s",
+            exc,
+        )
+        return ref_image, ref_mask
+
+    LOGGER.info(
+        "SCAIL-Pose2 replacement reference geometry auto-aligned in Condition: %s",
+        result.summary,
+    )
+    return result.ref_image, result.ref_mask
+
+
 def _first_bbox(value: Any):
     for bbox in frame_bboxes(value, kind="semantic_rgb_mask"):
         if bbox is not None and bbox.area > 0:
@@ -166,7 +206,7 @@ def _log_replacement_reference_geometry(
         LOGGER.warning(
             "SCAIL-Pose2 replacement reference geometry is not target-canvas aligned: "
             "ref_image_size=%s ref_mask_size=%s target_mask_size=%s. "
-            "Use SCAIL-Pose2 Reference Image Geometry Align before Condition when "
+            "Condition attempts automatic replacement reference alignment when "
             "reference crop/aspect differs from the driving subject.",
             ref_image_size,
             ref_mask_size,
@@ -222,6 +262,30 @@ class SCAILPose2SCAIL2Condition:
                 "width": ("INT", {"default": 512, "min": 1, "step": 1}),
                 "height": ("INT", {"default": 512, "min": 1, "step": 1}),
                 "num_frames": ("INT", {"default": 81, "min": 1, "step": 1}),
+                "reference_fit_mode": (
+                    ["contain", "cover", "fit_height", "fit_width"],
+                    {"default": "contain"},
+                ),
+                "reference_anchor": (
+                    ["bottom_center", "center"],
+                    {"default": "bottom_center"},
+                ),
+                "reference_target_frame_policy": (
+                    ["median_bbox", "first_valid", "largest"],
+                    {"default": "median_bbox"},
+                ),
+                "reference_bbox_margin": (
+                    "INT",
+                    {"default": 0, "min": 0, "max": 512, "step": 1},
+                ),
+                "reference_max_scale": (
+                    "FLOAT",
+                    {"default": 2.0, "min": 0.01, "max": 10.0, "step": 0.01},
+                ),
+                "reference_min_mask_area_ratio": (
+                    "FLOAT",
+                    {"default": 0.0005, "min": 0.0, "max": 1.0, "step": 0.0001},
+                ),
             },
             "optional": {
                 "pose_video": ("IMAGE",),
@@ -246,6 +310,12 @@ class SCAILPose2SCAIL2Condition:
         width,
         height,
         num_frames,
+        reference_fit_mode="contain",
+        reference_anchor="bottom_center",
+        reference_target_frame_policy="median_bbox",
+        reference_bbox_margin=0,
+        reference_max_scale=2.0,
+        reference_min_mask_area_ratio=0.0005,
         pose_video=None,
         driving_video=None,
         additional_ref_image=None,
@@ -277,6 +347,17 @@ class SCAILPose2SCAIL2Condition:
                 "SCAIL-Pose2 replacement condition uses driving_video as the "
                 "condition video source; sparse NLF skeleton-to-mask bbox "
                 "validation is not applied."
+            )
+            ref_image, ref_mask = _align_replacement_reference_geometry(
+                ref_image=ref_image,
+                ref_mask=ref_mask,
+                pose_video_mask=pose_video_mask,
+                fit_mode=reference_fit_mode,
+                anchor=reference_anchor,
+                target_frame_policy=reference_target_frame_policy,
+                bbox_margin=reference_bbox_margin,
+                max_scale=reference_max_scale,
+                min_mask_area_ratio=reference_min_mask_area_ratio,
             )
             _log_replacement_reference_geometry(
                 ref_image=ref_image,
