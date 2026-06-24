@@ -7,7 +7,8 @@ import types
 import unittest
 from pathlib import Path
 
-from scail2.geometry import frame_bboxes
+from scail2.geometry import BoundingBox, frame_bboxes
+from scail2.pose_alignment import AlignmentTransform
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -563,6 +564,130 @@ class V1PosePipelineTests(unittest.TestCase):
                     sys.modules.pop(name, None)
                 else:
                     sys.modules[name] = original_module
+
+    def test_dwpose_overlay_applies_alignment_transform_to_face_and_hands(self) -> None:
+        try:
+            import numpy as np
+            import torch
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"render dependencies unavailable: {exc}")
+
+        import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        pose_draw_package_name = f"{PACKAGE_NAME}.pose_draw"
+        draw_module_name = f"{pose_draw_package_name}.draw_pose_utils"
+
+        pose_draw_package = types.ModuleType(pose_draw_package_name)
+        pose_draw_package.__path__ = []
+        draw_module = types.ModuleType(draw_module_name)
+        captured = {}
+
+        def draw_pose_to_canvas_np(poses, **kwargs):
+            captured["body"] = poses[0]["bodies"]["candidate"][0, 0].copy()
+            captured["face"] = poses[0]["faces"][0, 0].copy()
+            captured["right_hand"] = poses[0]["hands"][0, 0].copy()
+            captured["left_hand"] = poses[0]["hands"][1, 0].copy()
+            canvas = np.zeros((kwargs["H"], kwargs["W"], 3), dtype=np.uint8)
+            x = int(round(float(captured["face"][0]) * (kwargs["W"] - 1)))
+            y = int(round(float(captured["face"][1]) * (kwargs["H"] - 1)))
+            canvas[y, x, 0] = 255
+            return [canvas]
+
+        draw_module.draw_pose_to_canvas_np = draw_pose_to_canvas_np
+        original_modules = {
+            name: sys.modules.get(name)
+            for name in (pose_draw_package_name, draw_module_name)
+        }
+        try:
+            sys.modules[pose_draw_package_name] = pose_draw_package
+            sys.modules[draw_module_name] = draw_module
+
+            frames = torch.zeros((1, 4, 4, 3), dtype=torch.float32)
+            mask = torch.zeros((1, 4, 4), dtype=torch.float32)
+            dw_pose_input = [
+                {
+                    "bodies": {
+                        "candidate": np.full((1, 24, 2), 0.125, dtype=np.float32),
+                        "subset": np.arange(24, dtype=np.float32)[None],
+                    },
+                    "faces": np.full((1, 68, 2), 0.125, dtype=np.float32),
+                    "hands": np.full((2, 21, 2), 0.125, dtype=np.float32),
+                }
+            ]
+            transform = AlignmentTransform(
+                frame_index=0,
+                pose_bbox=BoundingBox(0.0, 0.0, 2.0, 2.0),
+                target_bbox=BoundingBox(4.0, 4.0, 6.0, 6.0),
+                scale_x=1.0,
+                scale_y=1.0,
+                translate_x=4.0,
+                translate_y=4.0,
+                reason="ok",
+            )
+
+            output_frames, output_mask = nodes_module._overlay_dwpose_2d_on_frames(
+                frames_tensor=frames,
+                mask=mask,
+                dw_pose_input=dw_pose_input,
+                draw_face=True,
+                draw_hands=True,
+                identity_count=None,
+                alignment_transforms_by_person={0: (transform,)},
+                alignment_source_width=8,
+                alignment_source_height=8,
+            )
+
+            self.assertTrue(np.allclose([0.625, 0.625], captured["body"]))
+            self.assertTrue(np.allclose([0.625, 0.625], captured["face"]))
+            self.assertTrue(np.allclose([0.625, 0.625], captured["right_hand"]))
+            self.assertTrue(np.allclose([0.625, 0.625], captured["left_hand"]))
+            self.assertEqual(1.0, float(output_frames[0, 2, 2, 0].item()))
+            self.assertEqual(1.0, float(output_mask[0, 2, 2].item()))
+        finally:
+            for name, original_module in original_modules.items():
+                if original_module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = original_module
+
+    def test_dwpose_alignment_transform_rewrites_normalized_metadata(self) -> None:
+        try:
+            import numpy as np
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"render dependencies unavailable: {exc}")
+
+        import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        pose = {
+            "bodies": {
+                "candidate": np.full((1, 24, 2), 0.125, dtype=np.float32),
+                "subset": np.arange(24, dtype=np.float32)[None],
+            },
+            "faces": np.full((1, 68, 2), 0.125, dtype=np.float32),
+            "hands": np.full((2, 21, 2), 0.125, dtype=np.float32),
+        }
+        transform = AlignmentTransform(
+            frame_index=0,
+            pose_bbox=BoundingBox(0.0, 0.0, 2.0, 2.0),
+            target_bbox=BoundingBox(4.0, 4.0, 6.0, 6.0),
+            scale_x=1.0,
+            scale_y=1.0,
+            translate_x=4.0,
+            translate_y=4.0,
+            reason="ok",
+        )
+
+        repaired = nodes_module._transform_dwpose_frame_coordinates(
+            pose,
+            transforms_by_person={0: transform},
+            source_width=8,
+            source_height=8,
+        )
+
+        self.assertTrue(np.allclose([0.625, 0.625], repaired["bodies"]["candidate"][0, 0]))
+        self.assertTrue(np.allclose([0.625, 0.625], repaired["faces"][0, 0]))
+        self.assertTrue(np.allclose([0.625, 0.625], repaired["hands"][0, 0]))
+        self.assertTrue(np.allclose([0.125, 0.125], pose["faces"][0, 0]))
 
     def test_render_nlf_poses_renders_source_size_then_emits_half_output(self) -> None:
         try:

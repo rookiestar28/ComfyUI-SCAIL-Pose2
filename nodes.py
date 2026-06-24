@@ -111,6 +111,9 @@ def _overlay_dwpose_2d_on_frames(
     draw_face,
     draw_hands,
     identity_count=None,
+    alignment_transforms_by_person=None,
+    alignment_source_width=None,
+    alignment_source_height=None,
 ):
     if dw_pose_input is None or (not draw_face and not draw_hands):
         return frames_tensor, mask
@@ -121,6 +124,12 @@ def _overlay_dwpose_2d_on_frames(
 
     output_height = int(frames_tensor.shape[1])
     output_width = int(frames_tensor.shape[2])
+    overlay_dw_pose_input = _transform_dwpose_sequence_coordinates(
+        dw_pose_input,
+        transforms_by_person=alignment_transforms_by_person,
+        source_width=alignment_source_width,
+        source_height=alignment_source_height,
+    )
     person_count = _dwpose_person_count(dw_pose_input)
     if identity_count is not None and int(identity_count) > 0:
         expected = int(identity_count)
@@ -133,7 +142,7 @@ def _overlay_dwpose_2d_on_frames(
             )
             return frames_tensor, mask
     overlay_frames = draw_pose_to_canvas_np(
-        dw_pose_input,
+        overlay_dw_pose_input,
         pool=None,
         H=output_height,
         W=output_width,
@@ -180,6 +189,124 @@ def _overlay_dwpose_2d_on_frames(
         bool(draw_hands),
     )
     return result, mask_result
+
+
+def _transform_normalized_points(points, transform, *, source_width, source_height):
+    if points is None or transform is None or not transform.valid:
+        return points
+    array = np.array(points, copy=True)
+    if array.shape[-1] < 2:
+        return array
+    width = float(source_width)
+    height = float(source_height)
+    if width <= 0.0 or height <= 0.0:
+        return array
+    x = array[..., 0]
+    y = array[..., 1]
+    valid = np.isfinite(x) & np.isfinite(y) & (x >= 0.0) & (y >= 0.0)
+    if not bool(np.any(valid)):
+        return array
+    transformed_x = (
+        (x[valid] * width) * float(transform.scale_x) + float(transform.translate_x)
+    ) / width
+    transformed_y = (
+        (y[valid] * height) * float(transform.scale_y) + float(transform.translate_y)
+    ) / height
+    array[..., 0][valid] = transformed_x
+    array[..., 1][valid] = transformed_y
+    return array
+
+
+def _transform_dwpose_frame_coordinates(
+    pose,
+    *,
+    transforms_by_person,
+    source_width,
+    source_height,
+):
+    if not transforms_by_person or source_width is None or source_height is None:
+        return pose
+    transformed = copy.deepcopy(pose)
+    bodies = transformed.get("bodies", {})
+    candidates = bodies.get("candidate")
+    person_count = (
+        int(candidates.shape[0])
+        if hasattr(candidates, "shape") and candidates.ndim >= 3
+        else 0
+    )
+    for person_index in range(person_count):
+        transform = transforms_by_person.get(person_index)
+        if transform is None:
+            continue
+        candidates[person_index] = _transform_normalized_points(
+            candidates[person_index],
+            transform,
+            source_width=source_width,
+            source_height=source_height,
+        )
+        faces = transformed.get("faces")
+        if hasattr(faces, "shape") and faces.ndim >= 3 and person_index < faces.shape[0]:
+            faces[person_index] = _transform_normalized_points(
+                faces[person_index],
+                transform,
+                source_width=source_width,
+                source_height=source_height,
+            )
+        hands = transformed.get("hands")
+        if hasattr(hands, "shape") and hands.ndim >= 3:
+            for hand_index in (person_index * 2, person_index * 2 + 1):
+                if hand_index < hands.shape[0]:
+                    hands[hand_index] = _transform_normalized_points(
+                        hands[hand_index],
+                        transform,
+                        source_width=source_width,
+                        source_height=source_height,
+                    )
+    return transformed
+
+
+def _frame_transform(transforms, frame_index):
+    if not transforms:
+        return None
+    if frame_index < len(transforms):
+        return transforms[frame_index]
+    if len(transforms) == 1:
+        return transforms[0]
+    return None
+
+
+def _transform_dwpose_sequence_coordinates(
+    dw_pose_input,
+    *,
+    transforms_by_person,
+    source_width,
+    source_height,
+):
+    if not transforms_by_person or source_width is None or source_height is None:
+        return dw_pose_input
+    transformed_frames = []
+    for frame_index, pose in enumerate(dw_pose_input):
+        frame_transforms = {
+            int(person_index): transform
+            for person_index, transforms in transforms_by_person.items()
+            if (transform := _frame_transform(transforms, frame_index)) is not None
+        }
+        transformed_frames.append(
+            _transform_dwpose_frame_coordinates(
+                pose,
+                transforms_by_person=frame_transforms,
+                source_width=source_width,
+                source_height=source_height,
+            )
+        )
+    return transformed_frames
+
+
+def _all_person_alignment_transforms(dw_pose_input, transforms):
+    person_count = _dwpose_person_count(dw_pose_input)
+    if person_count <= 0:
+        person_count = 1
+    return {person_index: transforms for person_index in range(person_count)}
 
 
 def _dwpose_person_count(dw_pose_input):
@@ -817,6 +944,7 @@ class RenderNLFPoses:
             normalized_bboxes.valid_count,
         )
         used_identity_composition = False
+        dwpose_alignment_transforms_by_person = {}
         frames_tensor = None
         mask = None
         if (
@@ -870,6 +998,10 @@ class RenderNLFPoses:
                     pose_video_mask=identity_semantic_mask,
                 )
                 rendered_identity_tensors.append(identity_alignment.pose_video.cpu().float())
+                if identity_alignment.alignment_transforms:
+                    dwpose_alignment_transforms_by_person[person_index] = (
+                        identity_alignment.alignment_transforms
+                    )
                 used_person_indices.append(person_index)
                 logging.info(
                     "Render NLF Poses identity alignment: identity=%s person=%s %s",
@@ -932,6 +1064,11 @@ class RenderNLFPoses:
             )
             frames_tensor = alignment.pose_video.cpu().float()
             mask = (frames_tensor[..., :3] > 0.001).any(dim=-1).float()
+            if alignment.alignment_transforms:
+                dwpose_alignment_transforms_by_person = _all_person_alignment_transforms(
+                    dw_pose_input,
+                    alignment.alignment_transforms,
+                )
             logging.info("Render NLF Poses pose/mask alignment: %s", alignment.summary)
         elif bboxes is not None:
             can_repair, reason = bbox_payload_is_safe_for_render_repair(
@@ -957,6 +1094,11 @@ class RenderNLFPoses:
                 )
                 frames_tensor = alignment.pose_video.cpu().float()
                 mask = (frames_tensor[..., :3] > 0.001).any(dim=-1).float()
+                if alignment.alignment_transforms:
+                    dwpose_alignment_transforms_by_person = _all_person_alignment_transforms(
+                        dw_pose_input,
+                        alignment.alignment_transforms,
+                    )
                 logging.info("Render NLF Poses bbox alignment: %s", alignment.summary)
             else:
                 logging.warning("Render NLF Poses bbox alignment skipped: %s", reason)
@@ -981,6 +1123,9 @@ class RenderNLFPoses:
             draw_face=draw_face,
             draw_hands=draw_hands,
             identity_count=semantic_identity_count if semantic_identity_count > 0 else None,
+            alignment_transforms_by_person=dwpose_alignment_transforms_by_person,
+            alignment_source_width=active_render_width,
+            alignment_source_height=active_render_height,
         )
 
         return (frames_tensor, mask)

@@ -21,6 +21,7 @@ class PoseMaskAlignmentResult:
     summary: str
     before: GeometryDiagnostic
     after: GeometryDiagnostic
+    alignment_transforms: tuple["AlignmentTransform", ...] = ()
     temporal: "AlignmentTemporalDiagnostic | None" = None
     stabilization: "AlignmentTransformStabilizationResult | None" = None
 
@@ -733,6 +734,7 @@ def align_pose_video_to_mask(
         summary=_summary(before, after, frame_map, temporal, stabilization),
         before=before,
         after=after,
+        alignment_transforms=alignment_transforms,
         temporal=temporal,
         stabilization=stabilization,
     )
