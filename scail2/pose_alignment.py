@@ -21,6 +21,7 @@ class PoseMaskAlignmentResult:
     summary: str
     before: GeometryDiagnostic
     after: GeometryDiagnostic
+    temporal: "AlignmentTemporalDiagnostic | None" = None
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,60 @@ class _AlignmentFrameMap:
     mask_indices: tuple[int, ...]
     pose_frame_count: int
     mask_frame_count: int
+
+
+@dataclass(frozen=True)
+class AlignmentTransform:
+    frame_index: int
+    pose_bbox: BoundingBox | None
+    target_bbox: BoundingBox | None
+    scale_x: float | None
+    scale_y: float | None
+    translate_x: float | None
+    translate_y: float | None
+    reason: str
+
+    @property
+    def valid(self) -> bool:
+        return (
+            self.pose_bbox is not None
+            and self.target_bbox is not None
+            and self.scale_x is not None
+            and self.scale_y is not None
+            and self.translate_x is not None
+            and self.translate_y is not None
+        )
+
+
+@dataclass(frozen=True)
+class AlignmentTemporalDiagnostic:
+    frame_count: int
+    valid_transform_count: int
+    invalid_transform_count: int
+    max_center_jump_px: float | None
+    worst_center_jump_frame_index: int | None
+    max_center_impulse_px: float | None
+    worst_center_impulse_frame_index: int | None
+    max_scale_jump_ratio: float | None
+    worst_scale_jump_frame_index: int | None
+    max_scale_impulse_ratio: float | None
+    worst_scale_impulse_frame_index: int | None
+    transforms: tuple[AlignmentTransform, ...]
+
+    def to_summary(self) -> dict[str, Any]:
+        return {
+            "frame_count": self.frame_count,
+            "valid_transform_count": self.valid_transform_count,
+            "invalid_transform_count": self.invalid_transform_count,
+            "max_center_jump_px": self.max_center_jump_px,
+            "worst_center_jump_frame_index": self.worst_center_jump_frame_index,
+            "max_center_impulse_px": self.max_center_impulse_px,
+            "worst_center_impulse_frame_index": self.worst_center_impulse_frame_index,
+            "max_scale_jump_ratio": self.max_scale_jump_ratio,
+            "worst_scale_jump_frame_index": self.worst_scale_jump_frame_index,
+            "max_scale_impulse_ratio": self.max_scale_impulse_ratio,
+            "worst_scale_impulse_frame_index": self.worst_scale_impulse_frame_index,
+        }
 
 
 def _torch_or_none() -> Any | None:
@@ -157,6 +212,226 @@ def _build_alignment_frame_map(
     )
 
 
+def _alignment_transform(
+    *,
+    frame_index: int,
+    pose_bbox: BoundingBox | None,
+    mask_bbox: BoundingBox | None,
+    pose_size: tuple[int, int],
+    mask_size: tuple[int, int],
+) -> AlignmentTransform:
+    if pose_bbox is None:
+        return AlignmentTransform(
+            frame_index=frame_index,
+            pose_bbox=None,
+            target_bbox=None,
+            scale_x=None,
+            scale_y=None,
+            translate_x=None,
+            translate_y=None,
+            reason="missing_pose",
+        )
+    if mask_bbox is None:
+        return AlignmentTransform(
+            frame_index=frame_index,
+            pose_bbox=pose_bbox,
+            target_bbox=None,
+            scale_x=None,
+            scale_y=None,
+            translate_x=None,
+            translate_y=None,
+            reason="missing_mask",
+        )
+    if pose_bbox.width <= 0.0 or pose_bbox.height <= 0.0:
+        return AlignmentTransform(
+            frame_index=frame_index,
+            pose_bbox=pose_bbox,
+            target_bbox=None,
+            scale_x=None,
+            scale_y=None,
+            translate_x=None,
+            translate_y=None,
+            reason="invalid_pose_bbox",
+        )
+    target_bbox = _target_mask_bbox_in_pose_space(
+        mask_bbox=mask_bbox,
+        mask_size=mask_size,
+        pose_size=pose_size,
+    )
+    if target_bbox.width <= 0.0 or target_bbox.height <= 0.0:
+        return AlignmentTransform(
+            frame_index=frame_index,
+            pose_bbox=pose_bbox,
+            target_bbox=target_bbox,
+            scale_x=None,
+            scale_y=None,
+            translate_x=None,
+            translate_y=None,
+            reason="invalid_target_bbox",
+        )
+    scale_x = target_bbox.width / pose_bbox.width
+    scale_y = target_bbox.height / pose_bbox.height
+    return AlignmentTransform(
+        frame_index=frame_index,
+        pose_bbox=pose_bbox,
+        target_bbox=target_bbox,
+        scale_x=scale_x,
+        scale_y=scale_y,
+        translate_x=target_bbox.x_min - pose_bbox.x_min * scale_x,
+        translate_y=target_bbox.y_min - pose_bbox.y_min * scale_y,
+        reason="ok",
+    )
+
+
+def _build_alignment_transforms(
+    *,
+    pose_boxes: tuple[BoundingBox | None, ...],
+    mask_boxes: tuple[BoundingBox | None, ...],
+    pose_size: tuple[int, int],
+    mask_size: tuple[int, int],
+    frame_map: _AlignmentFrameMap,
+) -> tuple[AlignmentTransform, ...]:
+    transforms = []
+    for frame_index in range(frame_map.pose_frame_count):
+        pose_bbox = pose_boxes[frame_index]
+        mask_bbox = mask_boxes[frame_map.mask_indices[frame_index]]
+        transforms.append(
+            _alignment_transform(
+                frame_index=frame_index,
+                pose_bbox=pose_bbox,
+                mask_bbox=mask_bbox,
+                pose_size=pose_size,
+                mask_size=mask_size,
+            )
+        )
+    return tuple(transforms)
+
+
+def _center_distance(a: BoundingBox, b: BoundingBox) -> float:
+    dx = a.center_x - b.center_x
+    dy = a.center_y - b.center_y
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _ratio_distance(a: float | None, b: float | None) -> float | None:
+    if a is None or b is None or a <= 0.0 or b <= 0.0:
+        return None
+    ratio = a / b
+    return ratio if ratio >= 1.0 else 1.0 / ratio
+
+
+def _scale_distance(a: AlignmentTransform, b: AlignmentTransform) -> float | None:
+    ratio_x = _ratio_distance(a.scale_x, b.scale_x)
+    ratio_y = _ratio_distance(a.scale_y, b.scale_y)
+    values = [value for value in (ratio_x, ratio_y) if value is not None]
+    return max(values) if values else None
+
+
+def _max_metric(values: list[tuple[int, float]]) -> tuple[float | None, int | None]:
+    if not values:
+        return None, None
+    frame_index, value = max(values, key=lambda item: item[1])
+    return value, frame_index
+
+
+def _diagnose_transform_jitter(
+    transforms: tuple[AlignmentTransform, ...],
+) -> AlignmentTemporalDiagnostic:
+    valid_count = sum(1 for transform in transforms if transform.valid)
+    center_jumps = []
+    scale_jumps = []
+    for previous, current in zip(transforms, transforms[1:]):
+        if not previous.valid or not current.valid:
+            continue
+        center_jumps.append(
+            (
+                current.frame_index,
+                _center_distance(previous.target_bbox, current.target_bbox),
+            )
+        )
+        scale_jump = _scale_distance(previous, current)
+        if scale_jump is not None:
+            scale_jumps.append((current.frame_index, scale_jump))
+
+    center_impulses = []
+    scale_impulses = []
+    for previous, current, following in zip(transforms, transforms[1:], transforms[2:]):
+        if not previous.valid or not current.valid or not following.valid:
+            continue
+        expected_center = BoundingBox(
+            x_min=(previous.target_bbox.center_x + following.target_bbox.center_x) / 2.0,
+            y_min=(previous.target_bbox.center_y + following.target_bbox.center_y) / 2.0,
+            x_max=(previous.target_bbox.center_x + following.target_bbox.center_x) / 2.0,
+            y_max=(previous.target_bbox.center_y + following.target_bbox.center_y) / 2.0,
+        )
+        center_impulses.append(
+            (
+                current.frame_index,
+                _center_distance(current.target_bbox, expected_center),
+            )
+        )
+        expected_scale_x = (previous.scale_x + following.scale_x) / 2.0
+        expected_scale_y = (previous.scale_y + following.scale_y) / 2.0
+        scale_x_impulse = _ratio_distance(current.scale_x, expected_scale_x)
+        scale_y_impulse = _ratio_distance(current.scale_y, expected_scale_y)
+        scale_values = [
+            value
+            for value in (scale_x_impulse, scale_y_impulse)
+            if value is not None
+        ]
+        if scale_values:
+            scale_impulses.append((current.frame_index, max(scale_values)))
+
+    max_center_jump, worst_center_jump = _max_metric(center_jumps)
+    max_center_impulse, worst_center_impulse = _max_metric(center_impulses)
+    max_scale_jump, worst_scale_jump = _max_metric(scale_jumps)
+    max_scale_impulse, worst_scale_impulse = _max_metric(scale_impulses)
+    return AlignmentTemporalDiagnostic(
+        frame_count=len(transforms),
+        valid_transform_count=valid_count,
+        invalid_transform_count=len(transforms) - valid_count,
+        max_center_jump_px=max_center_jump,
+        worst_center_jump_frame_index=worst_center_jump,
+        max_center_impulse_px=max_center_impulse,
+        worst_center_impulse_frame_index=worst_center_impulse,
+        max_scale_jump_ratio=max_scale_jump,
+        worst_scale_jump_frame_index=worst_scale_jump,
+        max_scale_impulse_ratio=max_scale_impulse,
+        worst_scale_impulse_frame_index=worst_scale_impulse,
+        transforms=transforms,
+    )
+
+
+def diagnose_alignment_temporal_jitter(
+    *,
+    pose_video: Any,
+    pose_video_mask: Any,
+    target_width: Any | None = None,
+    target_height: Any | None = None,
+) -> AlignmentTemporalDiagnostic:
+    pose_size = frame_size(pose_video, kind="pose_image")
+    mask_size = frame_size(pose_video_mask, kind="semantic_rgb_mask")
+    if (target_width is None) != (target_height is None):
+        raise ValueError("target_width and target_height must be provided together")
+    if target_width is not None:
+        if int(target_width) <= 0 or int(target_height) <= 0:
+            raise ValueError("target_width and target_height must be positive")
+    pose_boxes = frame_bboxes(pose_video, kind="pose_image")
+    mask_boxes = frame_bboxes(pose_video_mask, kind="semantic_rgb_mask")
+    frame_map = _build_alignment_frame_map(
+        pose_frame_count=len(pose_boxes),
+        mask_frame_count=len(mask_boxes),
+    )
+    transforms = _build_alignment_transforms(
+        pose_boxes=pose_boxes,
+        mask_boxes=mask_boxes,
+        pose_size=pose_size,
+        mask_size=mask_size,
+        frame_map=frame_map,
+    )
+    return _diagnose_transform_jitter(transforms)
+
+
 def _align_python_pose_video(
     *,
     pose_video: Any,
@@ -241,7 +516,11 @@ def _summary(
     before: GeometryDiagnostic,
     after: GeometryDiagnostic,
     frame_map: _AlignmentFrameMap,
+    temporal: AlignmentTemporalDiagnostic | None,
 ) -> str:
+    def fmt(value: float | None) -> str:
+        return "None" if value is None else str(float(value))
+
     return (
         "pose_mask_alignment "
         f"before_status={before.status} after_status={after.status} "
@@ -252,7 +531,17 @@ def _summary(
         f"before_mean_iou={before.mean_iou} after_mean_iou={after.mean_iou} "
         f"after_center_delta_px={after.mean_center_delta_px} "
         f"before_center_path_error_px={before.mean_center_path_error_px} "
-        f"after_center_path_error_px={after.mean_center_path_error_px}"
+        f"after_center_path_error_px={after.mean_center_path_error_px} "
+        f"temporal_valid_transforms={temporal.valid_transform_count if temporal else None} "
+        f"temporal_invalid_transforms={temporal.invalid_transform_count if temporal else None} "
+        f"max_center_jump_px={fmt(temporal.max_center_jump_px if temporal else None)} "
+        f"worst_center_jump_frame={temporal.worst_center_jump_frame_index if temporal else None} "
+        f"max_center_impulse_px={fmt(temporal.max_center_impulse_px if temporal else None)} "
+        f"worst_center_impulse_frame={temporal.worst_center_impulse_frame_index if temporal else None} "
+        f"max_scale_jump_ratio={fmt(temporal.max_scale_jump_ratio if temporal else None)} "
+        f"worst_scale_jump_frame={temporal.worst_scale_jump_frame_index if temporal else None} "
+        f"max_scale_impulse_ratio={fmt(temporal.max_scale_impulse_ratio if temporal else None)} "
+        f"worst_scale_impulse_frame={temporal.worst_scale_impulse_frame_index if temporal else None}"
     )
 
 
@@ -280,6 +569,14 @@ def align_pose_video_to_mask(
         pose_frame_count=len(pose_boxes),
         mask_frame_count=len(mask_boxes),
     )
+    transforms = _build_alignment_transforms(
+        pose_boxes=pose_boxes,
+        mask_boxes=mask_boxes,
+        pose_size=pose_size,
+        mask_size=mask_size,
+        frame_map=frame_map,
+    )
+    temporal = _diagnose_transform_jitter(transforms)
     before = diagnose_pose_mask_geometry(
         pose_video=pose_video,
         pose_video_mask=pose_video_mask,
@@ -314,7 +611,8 @@ def align_pose_video_to_mask(
     )
     return PoseMaskAlignmentResult(
         pose_video=aligned,
-        summary=_summary(before, after, frame_map),
+        summary=_summary(before, after, frame_map, temporal),
         before=before,
         after=after,
+        temporal=temporal,
     )
