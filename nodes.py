@@ -336,6 +336,30 @@ def _nlf_result_boxes_or_detector_boxes(result, detector_boxes):
     return result_boxes
 
 
+_NLF_DETECTOR_MAX_BATCH_SIZE = 16
+
+
+def _resolve_nlf_prediction_batch_size(num_images, per_batch):
+    requested = int(per_batch)
+    if requested == -1:
+        return max(1, int(num_images))
+    return max(1, requested)
+
+
+def _resolve_nlf_detector_batch_size(num_images, per_batch):
+    prediction_batch_size = _resolve_nlf_prediction_batch_size(num_images, per_batch)
+    # IMPORTANT: ComfyUI RT-DETR can overflow in torch max_pool2d when long
+    # videos are passed as one giant detector batch via per_batch=-1.
+    return max(
+        1,
+        min(
+            int(num_images) if int(num_images) > 0 else 1,
+            prediction_batch_size,
+            _NLF_DETECTOR_MAX_BATCH_SIZE,
+        ),
+    )
+
+
 def _load_vitpose_utils():
     from .vitpose_utils.utils import (
         aaposemeta_to_dwpose_scail,
@@ -1085,7 +1109,7 @@ class NLFPredictPoses:
             },
             "optional": {
                 "per_batch": ("INT", {"default": 1, "min": -1, "max": 10000, "step": 1,
-                    "tooltip": "Images per batch. -1 = all at once. 1 = lowest VRAM usage."}),
+                    "tooltip": "Images per pose-estimation batch. -1 = all at once for NLF estimation; person detection is automatically chunked for long videos. 1 = lowest VRAM usage."}),
                 "num_aug": ("INT", {"default": 1, "min": 1, "max": 20, "step": 1,
                     "tooltip": "Number of test-time augmentations. More = slower but more accurate."}),
                 "detector_threshold": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0, "step": 0.05,
@@ -1102,7 +1126,16 @@ class NLFPredictPoses:
         _require_dependency("torch", torch)
         _require_dependency("comfy.model_management", mm)
         num_images = images.shape[0]
-        batch_size = num_images if per_batch == -1 else per_batch
+        detector_batch_size = _resolve_nlf_detector_batch_size(num_images, per_batch)
+        pose_batch_size = _resolve_nlf_prediction_batch_size(num_images, per_batch)
+        if detector_batch_size != pose_batch_size:
+            logging.info(
+                "NLF Predict Poses detector batch bounded: frames=%s "
+                "pose_batch=%s detector_batch=%s",
+                num_images,
+                pose_batch_size,
+                detector_batch_size,
+            )
 
         # Convert to NCHW on GPU once
         images_nchw = images.permute(0, 3, 1, 2)
@@ -1111,8 +1144,8 @@ class NLFPredictPoses:
         nlf_model.detector.load()
         all_boxes = []
         pbar_det = ProgressBar(num_images)
-        for i in tqdm(range(0, num_images, batch_size), desc="Detecting"):
-            end_idx = min(i + batch_size, num_images)
+        for i in tqdm(range(0, num_images, detector_batch_size), desc="Detecting"):
+            end_idx = min(i + detector_batch_size, num_images)
             all_boxes.extend(nlf_model.detector.detect(images_nchw[i:end_idx].to(device), threshold=detector_threshold))
             pbar_det.update(end_idx - i)
 
@@ -1121,8 +1154,8 @@ class NLFPredictPoses:
         all_joints3d = []
         all_result_boxes = []
         pbar_nlf = ProgressBar(num_images)
-        for i in tqdm(range(0, num_images, batch_size), desc="Estimating poses"):
-            end_idx = min(i + batch_size, num_images)
+        for i in tqdm(range(0, num_images, pose_batch_size), desc="Estimating poses"):
+            end_idx = min(i + pose_batch_size, num_images)
             detector_batch_boxes = all_boxes[i:end_idx]
 
             result = nlf_model.detect_and_estimate(

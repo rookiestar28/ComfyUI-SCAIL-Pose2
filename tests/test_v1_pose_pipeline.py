@@ -110,6 +110,88 @@ class V1PosePipelineTests(unittest.TestCase):
 
         self.assertIs(detector_boxes, selected)
 
+    def test_nlf_predict_limits_detector_batch_when_per_batch_is_all(self) -> None:
+        try:
+            import torch
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"torch unavailable: {exc}")
+
+        package = import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        predictor = package.NODE_CLASS_MAPPINGS["NLFPredictPoses"]()
+        original_mm = nodes_module.mm
+        original_device = nodes_module.device
+        original_offload_device = nodes_module.offload_device
+
+        class FakeModelManagement:
+            @staticmethod
+            def load_model_gpu(_model_patcher):
+                return None
+
+        class FakeDetector:
+            def __init__(self):
+                self.call_sizes = []
+
+            def load(self):
+                return None
+
+            def detect(self, images, threshold=0.3):
+                del threshold
+                self.call_sizes.append(int(images.shape[0]))
+                return [
+                    torch.tensor(
+                        [[1.0, 2.0, 3.0, 4.0, 0.9]],
+                        dtype=torch.float32,
+                        device=images.device,
+                    )
+                    for _ in range(int(images.shape[0]))
+                ]
+
+        class FakeNLFPipeline:
+            def __init__(self):
+                self.detector = FakeDetector()
+                self.model_patcher = object()
+
+            def detect_and_estimate(self, images, num_aug=1, boxes=None):
+                del num_aug
+                return {
+                    "boxes": boxes,
+                    "poses3d": [
+                        torch.zeros(
+                            (int(frame_boxes.shape[0]), 1, 3),
+                            dtype=torch.float32,
+                            device=images.device,
+                        )
+                        for frame_boxes in boxes
+                    ],
+                }
+
+        try:
+            nodes_module.mm = FakeModelManagement()
+            nodes_module.device = torch.device("cpu")
+            nodes_module.offload_device = torch.device("cpu")
+            nlf_model = FakeNLFPipeline()
+            images = torch.zeros((665, 2, 2, 3), dtype=torch.float32)
+
+            pose_results, bboxes = predictor.predict(
+                nlf_model,
+                images,
+                per_batch=-1,
+                num_aug=1,
+                detector_threshold=0.3,
+            )
+
+            self.assertEqual(665, sum(nlf_model.detector.call_sizes))
+            self.assertGreater(len(nlf_model.detector.call_sizes), 1)
+            self.assertLess(max(nlf_model.detector.call_sizes), 665)
+            self.assertLessEqual(max(nlf_model.detector.call_sizes), 16)
+            self.assertEqual(665, len(bboxes))
+            self.assertEqual(665, len(pose_results["joints3d_nonparam"][0]))
+        finally:
+            nodes_module.mm = original_mm
+            nodes_module.device = original_device
+            nodes_module.offload_device = original_offload_device
+
     def test_render_device_gpu_prefers_cuda_when_available(self) -> None:
         import_root_package()
         nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
