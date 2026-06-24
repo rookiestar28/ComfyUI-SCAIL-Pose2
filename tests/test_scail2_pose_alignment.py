@@ -140,7 +140,7 @@ class Scail2PoseAlignmentTests(unittest.TestCase):
         self.assertEqual(1.0, diagnostic.max_scale_impulse_ratio)
         self.assertIn("max_center_impulse_px=0.0", result.summary)
 
-    def test_temporal_jitter_diagnostic_reports_one_frame_center_impulse(self) -> None:
+    def test_alignment_stabilizes_one_frame_center_impulse(self) -> None:
         pose_frames = []
         mask_frames = []
         for offset in (0, 1, 6, 3, 4):
@@ -164,9 +164,32 @@ class Scail2PoseAlignmentTests(unittest.TestCase):
         self.assertEqual(2, diagnostic.worst_center_impulse_frame_index)
         self.assertEqual(4.0, diagnostic.max_center_impulse_px)
         self.assertEqual(5.0, diagnostic.max_center_jump_px)
-        self.assertEqual(0.0, result.after.mean_center_delta_px)
-        self.assertEqual((8.0, 2.0, 10.0, 4.0), frame_bboxes(result.pose_video, kind="pose_image")[2].to_tuple())
+        self.assertEqual((2,), result.stabilization.adjusted_frame_indices)
+        self.assertEqual(0.0, result.temporal.max_center_impulse_px)
+        self.assertEqual((4.0, 2.0, 6.0, 4.0), frame_bboxes(result.pose_video, kind="pose_image")[2].to_tuple())
         self.assertIn("worst_center_impulse_frame=2", result.summary)
+        self.assertIn("temporal_adjusted_frames=(2,)", result.summary)
+
+    def test_alignment_can_disable_temporal_stabilization_for_exact_behavior(self) -> None:
+        pose_frames = []
+        mask_frames = []
+        for offset in (0, 1, 6, 3, 4):
+            pose = image_frame(16, 8)
+            mask = image_frame(16, 8)
+            paint_rect(pose, x0=0, y0=2, x1=2, y1=4, color=BLUE)
+            paint_rect(mask, x0=2 + offset, y0=2, x1=4 + offset, y1=4, color=BLUE)
+            pose_frames.append(pose)
+            mask_frames.append(mask)
+
+        result = align_pose_video_to_mask(
+            pose_video=pose_frames,
+            pose_video_mask=mask_frames,
+            temporal_stabilization=False,
+        )
+
+        self.assertIsNone(result.stabilization)
+        self.assertEqual((8.0, 2.0, 10.0, 4.0), frame_bboxes(result.pose_video, kind="pose_image")[2].to_tuple())
+        self.assertIn("temporal_adjusted_frames=()", result.summary)
 
     def test_temporal_jitter_diagnostic_reports_one_frame_scale_impulse(self) -> None:
         pose_frames = []

@@ -22,6 +22,7 @@ class PoseMaskAlignmentResult:
     before: GeometryDiagnostic
     after: GeometryDiagnostic
     temporal: "AlignmentTemporalDiagnostic | None" = None
+    stabilization: "AlignmentTransformStabilizationResult | None" = None
 
 
 @dataclass(frozen=True)
@@ -558,27 +559,20 @@ def diagnose_alignment_temporal_jitter(
 def _align_python_pose_video(
     *,
     pose_video: Any,
-    pose_boxes: tuple[BoundingBox | None, ...],
-    mask_boxes: tuple[BoundingBox | None, ...],
+    alignment_transforms: tuple[AlignmentTransform, ...],
     pose_size: tuple[int, int],
-    mask_size: tuple[int, int],
-    frame_map: _AlignmentFrameMap,
 ) -> tuple[Any, ...]:
     frames = _split_image_frames(pose_video)
     pose_height, pose_width = pose_size
     output_frames = []
     for frame_index, frame in enumerate(frames):
-        pose_bbox = pose_boxes[frame_index]
-        mask_bbox = mask_boxes[frame_map.mask_indices[frame_index]]
-        if pose_bbox is None or mask_bbox is None:
+        transform = alignment_transforms[frame_index]
+        pose_bbox = transform.pose_bbox
+        target_bbox = transform.target_bbox
+        if pose_bbox is None or target_bbox is None:
             output_frames.append(_freeze_python_frame(frame))
             continue
         sx0, sy0, sx1, sy1 = _int_bbox(pose_bbox, width=pose_width, height=pose_height)
-        target_bbox = _target_mask_bbox_in_pose_space(
-            mask_bbox=mask_bbox,
-            mask_size=mask_size,
-            pose_size=pose_size,
-        )
         dx0, dy0, dx1, dy1 = _int_bbox(target_bbox, width=pose_width, height=pose_height)
         crop = tuple(tuple(row[sx0:sx1]) for row in frame[sy0:sy1])
         resized = _resize_crop_nearest(crop, width=dx1 - dx0, height=dy1 - dy0)
@@ -594,11 +588,8 @@ def _align_python_pose_video(
 def _align_tensor_pose_video(
     *,
     pose_video: Any,
-    pose_boxes: tuple[BoundingBox | None, ...],
-    mask_boxes: tuple[BoundingBox | None, ...],
+    alignment_transforms: tuple[AlignmentTransform, ...],
     pose_size: tuple[int, int],
-    mask_size: tuple[int, int],
-    frame_map: _AlignmentFrameMap,
 ) -> Any:
     torch = _torch_or_none()
     if torch is None:
@@ -612,17 +603,13 @@ def _align_tensor_pose_video(
     pose_height, pose_width = pose_size
     output = torch.zeros_like(view)
     for frame_index, frame in enumerate(view):
-        pose_bbox = pose_boxes[frame_index]
-        mask_bbox = mask_boxes[frame_map.mask_indices[frame_index]]
-        if pose_bbox is None or mask_bbox is None:
+        transform = alignment_transforms[frame_index]
+        pose_bbox = transform.pose_bbox
+        target_bbox = transform.target_bbox
+        if pose_bbox is None or target_bbox is None:
             output[frame_index] = frame
             continue
         sx0, sy0, sx1, sy1 = _int_bbox(pose_bbox, width=pose_width, height=pose_height)
-        target_bbox = _target_mask_bbox_in_pose_space(
-            mask_bbox=mask_bbox,
-            mask_size=mask_size,
-            pose_size=pose_size,
-        )
         dx0, dy0, dx1, dy1 = _int_bbox(target_bbox, width=pose_width, height=pose_height)
         crop = frame[sy0:sy1, sx0:sx1, :]
         resized = F.interpolate(
@@ -640,10 +627,13 @@ def _summary(
     after: GeometryDiagnostic,
     frame_map: _AlignmentFrameMap,
     temporal: AlignmentTemporalDiagnostic | None,
+    stabilization: AlignmentTransformStabilizationResult | None,
 ) -> str:
     def fmt(value: float | None) -> str:
         return "None" if value is None else str(float(value))
 
+    before_temporal = stabilization.before if stabilization is not None else temporal
+    adjusted_frames = stabilization.adjusted_frame_indices if stabilization is not None else ()
     return (
         "pose_mask_alignment "
         f"before_status={before.status} after_status={after.status} "
@@ -657,6 +647,10 @@ def _summary(
         f"after_center_path_error_px={after.mean_center_path_error_px} "
         f"temporal_valid_transforms={temporal.valid_transform_count if temporal else None} "
         f"temporal_invalid_transforms={temporal.invalid_transform_count if temporal else None} "
+        f"before_max_center_impulse_px={fmt(before_temporal.max_center_impulse_px if before_temporal else None)} "
+        f"before_worst_center_impulse_frame={before_temporal.worst_center_impulse_frame_index if before_temporal else None} "
+        f"before_max_scale_impulse_ratio={fmt(before_temporal.max_scale_impulse_ratio if before_temporal else None)} "
+        f"before_worst_scale_impulse_frame={before_temporal.worst_scale_impulse_frame_index if before_temporal else None} "
         f"max_center_jump_px={fmt(temporal.max_center_jump_px if temporal else None)} "
         f"worst_center_jump_frame={temporal.worst_center_jump_frame_index if temporal else None} "
         f"max_center_impulse_px={fmt(temporal.max_center_impulse_px if temporal else None)} "
@@ -664,7 +658,8 @@ def _summary(
         f"max_scale_jump_ratio={fmt(temporal.max_scale_jump_ratio if temporal else None)} "
         f"worst_scale_jump_frame={temporal.worst_scale_jump_frame_index if temporal else None} "
         f"max_scale_impulse_ratio={fmt(temporal.max_scale_impulse_ratio if temporal else None)} "
-        f"worst_scale_impulse_frame={temporal.worst_scale_impulse_frame_index if temporal else None}"
+        f"worst_scale_impulse_frame={temporal.worst_scale_impulse_frame_index if temporal else None} "
+        f"temporal_adjusted_frames={adjusted_frames}"
     )
 
 
@@ -674,6 +669,7 @@ def align_pose_video_to_mask(
     pose_video_mask: Any,
     target_width: Any | None = None,
     target_height: Any | None = None,
+    temporal_stabilization: bool = True,
 ) -> PoseMaskAlignmentResult:
     pose_size = frame_size(pose_video, kind="pose_image")
     mask_size = frame_size(pose_video_mask, kind="semantic_rgb_mask")
@@ -699,7 +695,13 @@ def align_pose_video_to_mask(
         mask_size=mask_size,
         frame_map=frame_map,
     )
-    temporal = _diagnose_transform_jitter(transforms)
+    stabilization = stabilize_alignment_transforms(transforms) if temporal_stabilization else None
+    alignment_transforms = stabilization.transforms if stabilization is not None else transforms
+    temporal = (
+        stabilization.after
+        if stabilization is not None
+        else _diagnose_transform_jitter(alignment_transforms)
+    )
     before = diagnose_pose_mask_geometry(
         pose_video=pose_video,
         pose_video_mask=pose_video_mask,
@@ -710,20 +712,14 @@ def align_pose_video_to_mask(
     if _is_torch_tensor(pose_video):
         aligned = _align_tensor_pose_video(
             pose_video=pose_video,
-            pose_boxes=pose_boxes,
-            mask_boxes=mask_boxes,
+            alignment_transforms=alignment_transforms,
             pose_size=pose_size,
-            mask_size=mask_size,
-            frame_map=frame_map,
         )
     else:
         aligned = _align_python_pose_video(
             pose_video=pose_video,
-            pose_boxes=pose_boxes,
-            mask_boxes=mask_boxes,
+            alignment_transforms=alignment_transforms,
             pose_size=pose_size,
-            mask_size=mask_size,
-            frame_map=frame_map,
         )
 
     after = diagnose_pose_mask_geometry(
@@ -734,8 +730,9 @@ def align_pose_video_to_mask(
     )
     return PoseMaskAlignmentResult(
         pose_video=aligned,
-        summary=_summary(before, after, frame_map, temporal),
+        summary=_summary(before, after, frame_map, temporal, stabilization),
         before=before,
         after=after,
         temporal=temporal,
+        stabilization=stabilization,
     )
