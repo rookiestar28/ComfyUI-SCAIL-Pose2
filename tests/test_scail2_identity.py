@@ -6,6 +6,7 @@ from scail2.identity import (
     SCAIL2_IDENTITY_COLORS,
     build_identity_slots,
     identity_count_from_semantic_mask,
+    semantic_identity_indices,
     semantic_identity_rgb_mask,
 )
 
@@ -60,6 +61,8 @@ class Scail2IdentityTests(unittest.TestCase):
 
         self.assertEqual(2, identity_count_from_semantic_mask(frames))
         self.assertEqual(2, identity_count_from_semantic_mask(raw_frames))
+        self.assertEqual((0, 1), semantic_identity_indices(frames))
+        self.assertEqual((0, 1), semantic_identity_indices(raw_frames))
 
     def test_extracts_one_identity_semantic_mask(self) -> None:
         frames = (

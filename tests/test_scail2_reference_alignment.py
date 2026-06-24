@@ -9,6 +9,7 @@ from scail2.geometry import frame_bboxes
 from scail2.reference_alignment import (
     SCAIL_POSE2_REFERENCE_GEOMETRY_ALIGNED_ATTR,
     align_reference_image_geometry,
+    align_reference_image_geometry_slots,
 )
 
 
@@ -150,6 +151,52 @@ class Scail2ReferenceAlignmentTests(unittest.TestCase):
         self.assertEqual("bottom_center", result.effective_anchor)
         self.assertEqual("contain", result.effective_fit_mode)
 
+    def test_multi_identity_slot_alignment_does_not_use_aggregate_bbox(self) -> None:
+        torch = self.torch
+        ref_image = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+        ref_mask = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+        pose_video_mask = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+
+        ref_image[0, 1:5, 1:3, 0] = 0.25
+        ref_image[0, 1:5, 7:9, 1] = 0.75
+        ref_mask[0, 1:5, 1:3, :] = torch.tensor([0.0, 0.0, 1.0])
+        ref_mask[0, 1:5, 7:9, :] = torch.tensor([1.0, 0.0, 0.0])
+        pose_video_mask[0, 2:6, 2:4, :] = torch.tensor([0.0, 0.0, 1.0])
+        pose_video_mask[0, 2:6, 5:7, :] = torch.tensor([1.0, 0.0, 0.0])
+
+        aggregate = align_reference_image_geometry(
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            pose_video_mask=pose_video_mask,
+            fit_mode="contain",
+            anchor="bottom_center",
+            control_region="subject",
+        )
+        slots = align_reference_image_geometry_slots(
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            pose_video_mask=pose_video_mask,
+            fit_mode="contain",
+            anchor="bottom_center",
+            control_region="subject",
+        )
+
+        self.assertEqual((2.0, 2.0, 7.0, 6.0), aggregate.target_bbox.to_tuple())
+        self.assertEqual((0, 1), slots.identity_indices)
+        self.assertEqual(1, len(slots.additional_ref_images))
+        self.assertEqual(1, len(slots.additional_ref_masks))
+        self.assertEqual(
+            (2.0, 2.0, 4.0, 6.0),
+            frame_bboxes(slots.ref_mask, kind="semantic_rgb_mask")[0].to_tuple(),
+        )
+        self.assertEqual(
+            (5.0, 2.0, 7.0, 6.0),
+            frame_bboxes(slots.additional_ref_masks[0], kind="semantic_rgb_mask")[
+                0
+            ].to_tuple(),
+        )
+        self.assertIn("identity_slots=2", slots.summary)
+
     def test_alignment_rejects_empty_reference_mask(self) -> None:
         torch = self.torch
         ref_image = torch.zeros((1, 10, 6, 3), dtype=torch.float32)
@@ -208,6 +255,80 @@ class Scail2ReferenceAlignmentTests(unittest.TestCase):
         self.assertEqual((1, 8, 8, 3), tuple(condition.ref_image.shape))
         self.assertEqual((1, 8, 8), tuple(condition.ref_mask_indices.shape))
         self.assertTrue(condition.source_kind.endswith(":reference_geometry_aligned"))
+
+    def test_condition_replacement_auto_splits_multi_identity_reference_slots(self) -> None:
+        package = import_root_package()
+        condition_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2SCAIL2Condition"]
+        torch = self.torch
+        ref_image = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+        ref_mask = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+        pose_video_mask = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+        driving_video = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+
+        ref_image[0, 1:5, 1:3, 0] = 0.25
+        ref_image[0, 1:5, 7:9, 1] = 0.75
+        ref_mask[0, 1:5, 1:3, :] = torch.tensor([0.0, 0.0, 1.0])
+        ref_mask[0, 1:5, 7:9, :] = torch.tensor([1.0, 0.0, 0.0])
+        pose_video_mask[0, 2:6, 2:4, :] = torch.tensor([0.0, 0.0, 1.0])
+        pose_video_mask[0, 2:6, 5:7, :] = torch.tensor([1.0, 0.0, 0.0])
+
+        condition, = condition_cls().build(
+            pose_video_mask=pose_video_mask,
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            mode="replacement",
+            width=10,
+            height=8,
+            num_frames=1,
+            driving_video=driving_video,
+        )
+
+        self.assertEqual(1, condition.identity.reference_identity_count)
+        self.assertEqual((1,), condition.identity.additional_reference_identity_counts)
+        self.assertEqual(2, condition.identity.reference_slot_count)
+        self.assertEqual(1, len(condition.additional_references))
+        self.assertEqual("generated_identity_1", condition.additional_references[0].source)
+        self.assertEqual(
+            (2.0, 2.0, 4.0, 6.0),
+            frame_bboxes(condition.ref_image, kind="pose_image")[0].to_tuple(),
+        )
+        self.assertNotIn(
+            "multi_identity_reference_slots_under_provisioned",
+            condition.identity.warnings,
+        )
+
+    def test_condition_replacement_preserves_user_additional_references_without_duplicate_auto_split(self) -> None:
+        package = import_root_package()
+        condition_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2SCAIL2Condition"]
+        torch = self.torch
+        ref_image = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+        ref_mask = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+        pose_video_mask = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+        driving_video = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+        user_extra = torch.zeros((1, 8, 10, 3), dtype=torch.float32)
+
+        ref_mask[0, 1:5, 1:3, :] = torch.tensor([0.0, 0.0, 1.0])
+        ref_mask[0, 1:5, 7:9, :] = torch.tensor([1.0, 0.0, 0.0])
+        pose_video_mask[0, 2:6, 2:4, :] = torch.tensor([0.0, 0.0, 1.0])
+        pose_video_mask[0, 2:6, 5:7, :] = torch.tensor([1.0, 0.0, 0.0])
+        user_extra[0, 2:6, 5:7, :] = torch.tensor([1.0, 0.0, 0.0])
+
+        condition, = condition_cls().build(
+            pose_video_mask=pose_video_mask,
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            mode="replacement",
+            width=10,
+            height=8,
+            num_frames=1,
+            driving_video=driving_video,
+            additional_ref_image=["manual_extra"],
+            additional_ref_mask=user_extra,
+        )
+
+        self.assertEqual(1, len(condition.additional_references))
+        self.assertEqual("manual_extra", condition.additional_references[0].image)
+        self.assertEqual("user", condition.additional_references[0].source)
 
     def test_condition_animation_skips_reference_geometry_alignment(self) -> None:
         package = import_root_package()

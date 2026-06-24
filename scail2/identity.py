@@ -137,6 +137,12 @@ def build_identity_slots(
 def identity_count_from_semantic_mask(value: Any) -> int:
     """Count SCAIL-2 palette colors present in an RGB semantic mask."""
 
+    return len(semantic_identity_indices(value))
+
+
+def semantic_identity_indices(value: Any) -> tuple[int, ...]:
+    """Return SCAIL-2 identity color indices present in an RGB semantic mask."""
+
     try:
         import torch
     except ModuleNotFoundError:
@@ -146,12 +152,12 @@ def identity_count_from_semantic_mask(value: Any) -> int:
         view = tensor.unsqueeze(0) if tensor.ndim == 3 else tensor
         if view.ndim != 4 or view.shape[-1] < 3:
             raise ValueError("semantic mask tensor must have shape [H, W, C] or [T, H, W, C]")
-        count = 0
+        present: list[int] = []
         rgb = view[..., :3].float()
         normalized = bool(((rgb >= 0.0) & (rgb <= 1.0)).all().item())
         scale = 1.0 if normalized else 255.0
         tolerance = 0.01 if normalized else 2.55
-        for color in SCAIL2_IDENTITY_COLORS:
+        for identity_index, color in enumerate(SCAIL2_IDENTITY_COLORS):
             target = torch.tensor(
                 tuple(channel * scale for channel in color),
                 device=rgb.device,
@@ -159,23 +165,24 @@ def identity_count_from_semantic_mask(value: Any) -> int:
             )
             active = (rgb - target.view(1, 1, 1, 3)).abs().amax(dim=-1) <= tolerance
             if bool(active.any().item()):
-                count += 1
-        return count
+                present.append(identity_index)
+        return tuple(present)
 
     frames = value
     if not frames:
-        return 0
+        return ()
     if frames and frames[0] and frames[0][0] and isinstance(frames[0][0][0], (int, float)):
         frames = [frames]
-    present: set[tuple[float, float, float]] = set()
+    present: list[int] = []
     for frame in frames:
         for row in frame:
             for pixel in row:
                 raw = _normalized_rgb(pixel)
-                for color in SCAIL2_IDENTITY_COLORS:
+                for identity_index, color in enumerate(SCAIL2_IDENTITY_COLORS):
                     if all(abs(raw[index] - color[index]) <= 0.01 for index in range(3)):
-                        present.add(color)
-    return len(present)
+                        if identity_index not in present:
+                            present.append(identity_index)
+    return tuple(present)
 
 
 def semantic_identity_rgb_mask(value: Any, *, identity_index: int) -> Any:

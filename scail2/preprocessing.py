@@ -19,6 +19,7 @@ def build_user_mask_condition(
     height: Any,
     additional_ref_images: Sequence[Any] | None = None,
     additional_ref_masks: Sequence[Sequence[Any]] | None = None,
+    additional_ref_sources: Sequence[str] | None = None,
     source_kind: Any = "user_rgb_masks",
 ) -> SCAIL2Condition:
     """Build a validated SCAIL-2 condition from user-supplied RGB masks."""
@@ -34,5 +35,6 @@ def build_user_mask_condition(
         height=height,
         additional_ref_images=additional_ref_images,
         additional_ref_masks=additional_ref_masks,
+        additional_ref_sources=additional_ref_sources,
         source_kind=source_kind,
     )

@@ -135,6 +135,12 @@ def _payload_schema(
             "count": len(condition.additional_references),
             "requires_paired_image_and_mask": True,
             "mask_frame_count": 1,
+            "sources": [item.source for item in condition.additional_references],
+            "generated_count": sum(
+                1
+                for item in condition.additional_references
+                if item.source.startswith("generated_")
+            ),
         },
         "identity": condition.identity.as_dict(),
         "degradation": {

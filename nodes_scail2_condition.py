@@ -16,6 +16,7 @@ from .scail2.observability import (
 from .scail2.geometry import frame_bboxes, frame_size
 from .scail2.reference_alignment import (
     align_reference_image_geometry,
+    align_reference_image_geometry_slots,
     reference_geometry_is_aligned,
     reference_geometry_summary,
 )
@@ -66,6 +67,11 @@ def _split_additional_images(value: Any | None) -> Sequence[Any] | None:
         return None
     if isinstance(value, (str, bytes)):
         return (value,)
+    if _is_tensor_like_image(value):
+        tensor = value.detach()
+        if len(tuple(tensor.shape)) == 3:
+            return (tensor.unsqueeze(0),)
+        return tuple(tensor[index : index + 1] for index in range(int(tensor.shape[0])))
     raw = _as_list(value)
     if not isinstance(raw, Sequence):
         return (raw,)
@@ -79,6 +85,11 @@ def _split_additional_masks(
 ) -> Sequence[Sequence[Any]] | None:
     if value is None:
         return None
+    if _is_tensor_like_image(value):
+        tensor = value.detach()
+        if len(tuple(tensor.shape)) == 3:
+            return (tensor.unsqueeze(0),)
+        return tuple(tensor[index : index + 1] for index in range(int(tensor.shape[0])))
     frames = _normalize_image_frames(value, name=name)
     return tuple((frame,) for frame in frames)
 
@@ -144,9 +155,9 @@ def _align_replacement_reference_geometry(
     bbox_margin: int,
     max_scale: float,
     min_mask_area_ratio: float,
-) -> tuple[Any, Any]:
+) -> tuple[Any, Any, tuple[Any, ...], tuple[Any, ...], tuple[str, ...]]:
     try:
-        result = align_reference_image_geometry(
+        result = align_reference_image_geometry_slots(
             ref_image=ref_image,
             ref_mask=ref_mask,
             pose_video_mask=pose_video_mask,
@@ -164,13 +175,26 @@ def _align_replacement_reference_geometry(
             "falling back to direct ref_image/ref_mask. reason=%s",
             exc,
         )
-        return ref_image, ref_mask
+        return ref_image, ref_mask, (), (), ()
 
     LOGGER.info(
         "SCAIL-Pose2 replacement reference geometry auto-aligned in Condition: %s",
         result.summary,
     )
-    return result.ref_image, result.ref_mask
+    if result.additional_ref_images:
+        LOGGER.info(
+            "SCAIL-Pose2 replacement generated %s additional reference slots "
+            "from multi-identity ref_mask identities=%s",
+            len(result.additional_ref_images),
+            result.identity_indices,
+        )
+    return (
+        result.ref_image,
+        result.ref_mask,
+        result.additional_ref_images,
+        result.additional_ref_masks,
+        result.additional_ref_sources,
+    )
 
 
 def _first_bbox(value: Any):
@@ -355,7 +379,13 @@ class SCAILPose2SCAIL2Condition:
                 "condition video source; sparse NLF skeleton-to-mask bbox "
                 "validation is not applied."
             )
-            ref_image, ref_mask = _align_replacement_reference_geometry(
+            (
+                ref_image,
+                ref_mask,
+                generated_additional_images,
+                generated_additional_masks,
+                generated_additional_sources,
+            ) = _align_replacement_reference_geometry(
                 ref_image=ref_image,
                 ref_mask=ref_mask,
                 pose_video_mask=pose_video_mask,
@@ -367,10 +397,30 @@ class SCAILPose2SCAIL2Condition:
                 max_scale=reference_max_scale,
                 min_mask_area_ratio=reference_min_mask_area_ratio,
             )
+            additional_sources = None
+            if generated_additional_images:
+                if additional_images or additional_masks:
+                    LOGGER.info(
+                        "SCAIL-Pose2 replacement kept user additional references "
+                        "and did not duplicate generated identity slots."
+                    )
+                    additional_sources = tuple("user" for _item in additional_images or ())
+                else:
+                    additional_images = generated_additional_images
+                    additional_masks = generated_additional_masks
+                    additional_sources = generated_additional_sources
+            elif additional_images:
+                additional_sources = tuple("user" for _item in additional_images)
             _log_replacement_reference_geometry(
                 ref_image=ref_image,
                 ref_mask=ref_mask,
                 pose_video_mask=pose_video_mask,
+            )
+        else:
+            additional_sources = (
+                tuple("user" for _item in additional_images)
+                if additional_images
+                else None
             )
         condition = build_user_mask_condition(
             mode=mode,
@@ -386,6 +436,7 @@ class SCAILPose2SCAIL2Condition:
             height=height,
             additional_ref_images=additional_images,
             additional_ref_masks=additional_masks,
+            additional_ref_sources=additional_sources,
             source_kind=_source_kind_for_reference_geometry(ref_image, ref_mask),
         )
         progress.update()

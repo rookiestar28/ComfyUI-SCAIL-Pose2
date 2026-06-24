@@ -437,6 +437,8 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(
             {
                 "mode": "replacement_only_auto",
+                "multi_identity_reference_slots": "auto_base_plus_generated_additional_refs",
+                "manual_additional_refs": "preserved_no_duplicate_auto_split",
                 "fit_mode_default": "auto",
                 "anchor_default": "auto",
                 "target_frame_policy_default": "median_bbox",

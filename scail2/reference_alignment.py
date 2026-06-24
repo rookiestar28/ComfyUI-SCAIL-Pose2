@@ -8,6 +8,7 @@ from statistics import median
 from typing import Any, Literal
 
 from .geometry import BoundingBox, frame_bboxes, frame_size
+from .identity import semantic_identity_indices, semantic_identity_rgb_mask
 
 
 FitMode = Literal["contain", "cover", "fit_height", "fit_width"]
@@ -40,6 +41,19 @@ class ReferenceGeometryAlignmentResult:
     control_region: str
     effective_fit_mode: str
     effective_anchor: str
+
+
+@dataclass(frozen=True)
+class ReferenceGeometrySlotAlignmentResult:
+    ref_image: Any
+    ref_mask: Any
+    additional_ref_images: tuple[Any, ...]
+    additional_ref_masks: tuple[Any, ...]
+    additional_ref_sources: tuple[str, ...]
+    summary: str
+    identity_indices: tuple[int, ...]
+    slot_summaries: tuple[str, ...]
+    fallback: str
 
 
 def _torch_required() -> Any:
@@ -552,4 +566,111 @@ def align_reference_image_geometry(
         control_region=effective_control_region,
         effective_fit_mode=effective_fit_mode,
         effective_anchor=effective_anchor,
+    )
+
+
+def _common_identity_indices(ref_mask: Any, pose_video_mask: Any) -> tuple[int, ...]:
+    ref_indices = semantic_identity_indices(ref_mask)
+    target_indices = set(semantic_identity_indices(pose_video_mask))
+    return tuple(index for index in ref_indices if index in target_indices)
+
+
+def align_reference_image_geometry_slots(
+    *,
+    ref_image: Any,
+    ref_mask: Any,
+    pose_video_mask: Any,
+    fit_mode: FitModeInput = "auto",
+    anchor: AnchorModeInput = "auto",
+    target_frame_policy: TargetFramePolicy = "median_bbox",
+    control_region: ControlRegionInput = "auto",
+    bbox_margin: int = 0,
+    max_scale: float = 2.0,
+    min_mask_area_ratio: float = 0.0005,
+) -> ReferenceGeometrySlotAlignmentResult:
+    """Align a replacement reference as base plus per-identity additional refs."""
+
+    identity_indices = _common_identity_indices(ref_mask, pose_video_mask)
+    if len(identity_indices) < 2:
+        result = align_reference_image_geometry(
+            ref_image=ref_image,
+            ref_mask=ref_mask,
+            pose_video_mask=pose_video_mask,
+            fit_mode=fit_mode,
+            anchor=anchor,
+            target_frame_policy=target_frame_policy,
+            control_region=control_region,
+            bbox_margin=bbox_margin,
+            max_scale=max_scale,
+            min_mask_area_ratio=min_mask_area_ratio,
+        )
+        summary = (
+            "reference_geometry_slot_alignment "
+            f"identity_slots={len(identity_indices) or 1} "
+            f"identities={','.join(str(index) for index in identity_indices) or 'aggregate'} "
+            "generated_additional=0 fallback=single_or_unmatched_identity "
+            f"base=({result.summary})"
+        )
+        _attach_metadata(result.ref_image, summary=summary)
+        _attach_metadata(result.ref_mask, summary=summary)
+        return ReferenceGeometrySlotAlignmentResult(
+            ref_image=result.ref_image,
+            ref_mask=result.ref_mask,
+            additional_ref_images=(),
+            additional_ref_masks=(),
+            additional_ref_sources=(),
+            summary=summary,
+            identity_indices=identity_indices,
+            slot_summaries=(result.summary,),
+            fallback="single_or_unmatched_identity",
+        )
+
+    slot_results: list[ReferenceGeometryAlignmentResult] = []
+    for identity_index in identity_indices:
+        slot_results.append(
+            align_reference_image_geometry(
+                ref_image=ref_image,
+                ref_mask=semantic_identity_rgb_mask(
+                    ref_mask,
+                    identity_index=identity_index,
+                ),
+                pose_video_mask=semantic_identity_rgb_mask(
+                    pose_video_mask,
+                    identity_index=identity_index,
+                ),
+                fit_mode=fit_mode,
+                anchor=anchor,
+                target_frame_policy=target_frame_policy,
+                control_region=control_region,
+                bbox_margin=bbox_margin,
+                max_scale=max_scale,
+                min_mask_area_ratio=min_mask_area_ratio,
+            )
+        )
+
+    base = slot_results[0]
+    additional = tuple(slot_results[1:])
+    additional_sources = tuple(
+        f"generated_identity_{identity_index}"
+        for identity_index in identity_indices[1:]
+    )
+    summary = (
+        "reference_geometry_slot_alignment "
+        f"identity_slots={len(identity_indices)} "
+        f"identities={','.join(str(index) for index in identity_indices)} "
+        f"generated_additional={len(additional)} fallback=none "
+        f"base=({base.summary})"
+    )
+    _attach_metadata(base.ref_image, summary=summary)
+    _attach_metadata(base.ref_mask, summary=summary)
+    return ReferenceGeometrySlotAlignmentResult(
+        ref_image=base.ref_image,
+        ref_mask=base.ref_mask,
+        additional_ref_images=tuple(result.ref_image for result in additional),
+        additional_ref_masks=tuple(result.ref_mask for result in additional),
+        additional_ref_sources=additional_sources,
+        summary=summary,
+        identity_indices=identity_indices,
+        slot_summaries=tuple(result.summary for result in slot_results),
+        fallback="none",
     )

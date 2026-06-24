@@ -29,6 +29,7 @@ MaskRole = Literal["driving", "reference"]
 class AdditionalReference:
     image: Any
     mask_indices: Any
+    source: str = "user"
 
 
 @dataclass(frozen=True)
@@ -290,18 +291,22 @@ def _normalize_additional_references(
     width: int,
     height: int,
     mode: SCAIL2Mode,
+    additional_ref_sources: Sequence[str] | None = None,
 ) -> tuple[AdditionalReference, ...]:
     images = tuple(additional_ref_images or ())
     masks = tuple(additional_ref_masks or ())
+    sources = tuple(additional_ref_sources or ("user" for _item in images))
     if images and not masks:
         raise ValueError("additional_ref_masks is required with additional_ref_images")
     if masks and not images:
         raise ValueError("additional_ref_images is required with additional_ref_masks")
     if len(images) != len(masks):
         raise ValueError("additional reference images and masks must have same length")
+    if len(sources) != len(images):
+        raise ValueError("additional reference sources must have same length")
 
     additional = []
-    for index, (image, mask) in enumerate(zip(images, masks)):
+    for index, (image, mask, source) in enumerate(zip(images, masks, sources)):
         mask_indices = _normalize_mask_indices(
             mask,
             mask_name=f"additional_ref_masks[{index}]",
@@ -318,7 +323,14 @@ def _normalize_additional_references(
             raise ValueError("additional reference masks must contain exactly one frame")
         if mode == "replacement":
             mask_indices = _replacement_reference_indices(mask_indices)
-        additional.append(AdditionalReference(image=image, mask_indices=mask_indices))
+        source_value = str(source).strip() or "user"
+        additional.append(
+            AdditionalReference(
+                image=image,
+                mask_indices=mask_indices,
+                source=source_value,
+            )
+        )
     return tuple(additional)
 
 
@@ -370,6 +382,7 @@ def build_scail2_condition(
     height: Any,
     additional_ref_images: Sequence[Any] | None = None,
     additional_ref_masks: Sequence[Sequence[Any]] | None = None,
+    additional_ref_sources: Sequence[str] | None = None,
     source_kind: Any = "user_rgb_masks",
 ) -> SCAIL2Condition:
     if mode not in SCAIL2_MODES:
@@ -425,6 +438,7 @@ def build_scail2_condition(
         width=width_value,
         height=height_value,
         mode=mode,
+        additional_ref_sources=additional_ref_sources,
     )
 
     return SCAIL2Condition(
