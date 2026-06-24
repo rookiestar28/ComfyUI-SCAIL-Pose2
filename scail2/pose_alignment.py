@@ -86,6 +86,14 @@ class AlignmentTemporalDiagnostic:
         }
 
 
+@dataclass(frozen=True)
+class AlignmentTransformStabilizationResult:
+    transforms: tuple[AlignmentTransform, ...]
+    before: AlignmentTemporalDiagnostic
+    after: AlignmentTemporalDiagnostic
+    adjusted_frame_indices: tuple[int, ...]
+
+
 def _torch_or_none() -> Any | None:
     try:
         import torch
@@ -399,6 +407,121 @@ def _diagnose_transform_jitter(
         max_scale_impulse_ratio=max_scale_impulse,
         worst_scale_impulse_frame_index=worst_scale_impulse,
         transforms=transforms,
+    )
+
+
+def _interpolate_bbox(a: BoundingBox, b: BoundingBox) -> BoundingBox:
+    return BoundingBox(
+        x_min=(a.x_min + b.x_min) / 2.0,
+        y_min=(a.y_min + b.y_min) / 2.0,
+        x_max=(a.x_max + b.x_max) / 2.0,
+        y_max=(a.y_max + b.y_max) / 2.0,
+    )
+
+
+def _median3(a: float, b: float, c: float) -> float:
+    return sorted((a, b, c))[1]
+
+
+def _bbox_from_center_size(
+    *,
+    center_x: float,
+    center_y: float,
+    width: float,
+    height: float,
+) -> BoundingBox:
+    half_width = max(width, 0.0) / 2.0
+    half_height = max(height, 0.0) / 2.0
+    return BoundingBox(
+        x_min=center_x - half_width,
+        y_min=center_y - half_height,
+        x_max=center_x + half_width,
+        y_max=center_y + half_height,
+    )
+
+
+def _rebuild_transform_with_target(
+    transform: AlignmentTransform,
+    target_bbox: BoundingBox,
+) -> AlignmentTransform:
+    if transform.pose_bbox is None:
+        return transform
+    if transform.pose_bbox.width <= 0.0 or transform.pose_bbox.height <= 0.0:
+        return transform
+    if target_bbox.width <= 0.0 or target_bbox.height <= 0.0:
+        return transform
+    scale_x = target_bbox.width / transform.pose_bbox.width
+    scale_y = target_bbox.height / transform.pose_bbox.height
+    return AlignmentTransform(
+        frame_index=transform.frame_index,
+        pose_bbox=transform.pose_bbox,
+        target_bbox=target_bbox,
+        scale_x=scale_x,
+        scale_y=scale_y,
+        translate_x=target_bbox.x_min - transform.pose_bbox.x_min * scale_x,
+        translate_y=target_bbox.y_min - transform.pose_bbox.y_min * scale_y,
+        reason="stabilized",
+    )
+
+
+def stabilize_alignment_transforms(
+    transforms: tuple[AlignmentTransform, ...],
+    *,
+    center_impulse_threshold_px: float = 2.0,
+    scale_impulse_threshold_ratio: float = 1.25,
+) -> AlignmentTransformStabilizationResult:
+    if center_impulse_threshold_px < 0.0:
+        raise ValueError("center_impulse_threshold_px must be non-negative")
+    if scale_impulse_threshold_ratio < 1.0:
+        raise ValueError("scale_impulse_threshold_ratio must be at least 1.0")
+
+    before = _diagnose_transform_jitter(transforms)
+    stabilized = list(transforms)
+    adjusted = []
+    for previous, current, following in zip(transforms, transforms[1:], transforms[2:]):
+        if not previous.valid or not current.valid or not following.valid:
+            continue
+        center_bbox = _interpolate_bbox(previous.target_bbox, following.target_bbox)
+        center_impulse = _center_distance(current.target_bbox, center_bbox)
+        expected_scale_x = _median3(previous.scale_x, current.scale_x, following.scale_x)
+        expected_scale_y = _median3(previous.scale_y, current.scale_y, following.scale_y)
+        scale_x_impulse = _ratio_distance(current.scale_x, expected_scale_x) or 1.0
+        scale_y_impulse = _ratio_distance(current.scale_y, expected_scale_y) or 1.0
+        scale_impulse = max(scale_x_impulse, scale_y_impulse)
+        adjust_center = center_impulse > center_impulse_threshold_px
+        adjust_scale = scale_impulse > scale_impulse_threshold_ratio
+        if adjust_center or adjust_scale:
+            target_center_x = center_bbox.center_x if adjust_center else current.target_bbox.center_x
+            target_center_y = center_bbox.center_y if adjust_center else current.target_bbox.center_y
+            target_width = (
+                current.pose_bbox.width * expected_scale_x
+                if adjust_scale
+                else current.target_bbox.width
+            )
+            target_height = (
+                current.pose_bbox.height * expected_scale_y
+                if adjust_scale
+                else current.target_bbox.height
+            )
+            expected_bbox = _bbox_from_center_size(
+                center_x=target_center_x,
+                center_y=target_center_y,
+                width=target_width,
+                height=target_height,
+            )
+            stabilized[current.frame_index] = _rebuild_transform_with_target(
+                current,
+                expected_bbox,
+            )
+            adjusted.append(current.frame_index)
+
+    stabilized_tuple = tuple(stabilized)
+    after = _diagnose_transform_jitter(stabilized_tuple)
+    return AlignmentTransformStabilizationResult(
+        transforms=stabilized_tuple,
+        before=before,
+        after=after,
+        adjusted_frame_indices=tuple(adjusted),
     )
 
 

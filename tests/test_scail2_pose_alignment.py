@@ -6,7 +6,11 @@ import unittest
 from pathlib import Path
 
 from scail2.geometry import diagnose_pose_mask_geometry, frame_bboxes
-from scail2.pose_alignment import align_pose_video_to_mask, diagnose_alignment_temporal_jitter
+from scail2.pose_alignment import (
+    align_pose_video_to_mask,
+    diagnose_alignment_temporal_jitter,
+    stabilize_alignment_transforms,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -184,6 +188,100 @@ class Scail2PoseAlignmentTests(unittest.TestCase):
         self.assertEqual(2, diagnostic.worst_scale_impulse_frame_index)
         self.assertEqual(3.0, diagnostic.max_scale_impulse_ratio)
         self.assertEqual(3.0, diagnostic.max_scale_jump_ratio)
+
+    def test_transform_smoothing_reduces_one_frame_center_impulse(self) -> None:
+        pose_frames = []
+        mask_frames = []
+        for offset in (0, 1, 6, 3, 4):
+            pose = image_frame(16, 8)
+            mask = image_frame(16, 8)
+            paint_rect(pose, x0=0, y0=2, x1=2, y1=4, color=BLUE)
+            paint_rect(mask, x0=2 + offset, y0=2, x1=4 + offset, y1=4, color=BLUE)
+            pose_frames.append(pose)
+            mask_frames.append(mask)
+
+        diagnostic = diagnose_alignment_temporal_jitter(
+            pose_video=pose_frames,
+            pose_video_mask=mask_frames,
+        )
+        stabilized = stabilize_alignment_transforms(
+            diagnostic.transforms,
+            center_impulse_threshold_px=2.0,
+            scale_impulse_threshold_ratio=1.5,
+        )
+
+        self.assertEqual((2,), stabilized.adjusted_frame_indices)
+        self.assertEqual(4.0, diagnostic.max_center_impulse_px)
+        self.assertEqual(0.0, stabilized.after.max_center_impulse_px)
+        self.assertLess(stabilized.after.max_center_jump_px, diagnostic.max_center_jump_px)
+
+    def test_transform_smoothing_reduces_one_frame_scale_impulse(self) -> None:
+        pose_frames = []
+        mask_frames = []
+        for width in (2, 2, 6, 2, 2):
+            pose = image_frame(16, 8)
+            mask = image_frame(16, 8)
+            paint_rect(pose, x0=0, y0=2, x1=2, y1=4, color=BLUE)
+            paint_rect(mask, x0=4, y0=2, x1=4 + width, y1=4, color=BLUE)
+            pose_frames.append(pose)
+            mask_frames.append(mask)
+
+        diagnostic = diagnose_alignment_temporal_jitter(
+            pose_video=pose_frames,
+            pose_video_mask=mask_frames,
+        )
+        stabilized = stabilize_alignment_transforms(
+            diagnostic.transforms,
+            center_impulse_threshold_px=99.0,
+            scale_impulse_threshold_ratio=1.5,
+        )
+
+        self.assertEqual((2,), stabilized.adjusted_frame_indices)
+        self.assertEqual(3.0, diagnostic.max_scale_impulse_ratio)
+        self.assertEqual(1.0, stabilized.after.max_scale_impulse_ratio)
+
+    def test_transform_smoothing_preserves_monotonic_motion(self) -> None:
+        pose_frames = []
+        mask_frames = []
+        for offset in (0, 1, 2, 3, 4):
+            pose = image_frame(12, 8)
+            mask = image_frame(12, 8)
+            paint_rect(pose, x0=0, y0=2, x1=2, y1=4, color=BLUE)
+            paint_rect(mask, x0=2 + offset, y0=2, x1=4 + offset, y1=4, color=BLUE)
+            pose_frames.append(pose)
+            mask_frames.append(mask)
+
+        diagnostic = diagnose_alignment_temporal_jitter(
+            pose_video=pose_frames,
+            pose_video_mask=mask_frames,
+        )
+        stabilized = stabilize_alignment_transforms(diagnostic.transforms)
+
+        self.assertEqual((), stabilized.adjusted_frame_indices)
+        self.assertEqual(diagnostic.transforms, stabilized.transforms)
+        self.assertEqual(0.0, stabilized.after.max_center_impulse_px)
+
+    def test_transform_smoothing_does_not_bridge_missing_frames(self) -> None:
+        pose_frames = []
+        mask_frames = []
+        for offset in (0, 1, None, 3, 4):
+            pose = image_frame(12, 8)
+            mask = image_frame(12, 8)
+            paint_rect(pose, x0=0, y0=2, x1=2, y1=4, color=BLUE)
+            if offset is not None:
+                paint_rect(mask, x0=2 + offset, y0=2, x1=4 + offset, y1=4, color=BLUE)
+            pose_frames.append(pose)
+            mask_frames.append(mask)
+
+        diagnostic = diagnose_alignment_temporal_jitter(
+            pose_video=pose_frames,
+            pose_video_mask=mask_frames,
+        )
+        stabilized = stabilize_alignment_transforms(diagnostic.transforms)
+
+        self.assertEqual(1, diagnostic.invalid_transform_count)
+        self.assertEqual((), stabilized.adjusted_frame_indices)
+        self.assertEqual(diagnostic.transforms, stabilized.transforms)
 
     def test_alignment_rejects_non_broadcast_frame_count_mismatch(self) -> None:
         pose_frames = [image_frame(4, 4) for _frame in range(3)]
