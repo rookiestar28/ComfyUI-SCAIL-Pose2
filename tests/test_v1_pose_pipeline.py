@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import types
 import unittest
@@ -36,6 +37,21 @@ def import_root_package():
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def import_render_torch_module():
+    module_name = f"{PACKAGE_NAME}.render_torch_under_test"
+    sys.modules.pop(module_name, None)
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        ROOT / "render_3d" / "render_torch.py",
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -227,6 +243,96 @@ class V1PosePipelineTests(unittest.TestCase):
         self.assertEqual("BBOX", optional["bboxes"][0])
         self.assertNotIn("render_width", optional)
         self.assertNotIn("render_height", optional)
+
+    def test_torch_nlf_renderer_defaults_to_fast_raster_path(self) -> None:
+        try:
+            import torch  # noqa: F401
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"render dependency unavailable: {exc}")
+
+        render_torch = import_render_torch_module()
+        original_mode = os.environ.pop("SCAIL_POSE2_TORCH_RENDER_MODE", None)
+        original_raster = render_torch._render_whole_capsule_raster
+        calls = []
+
+        def fake_raster(*_args, **_kwargs):
+            calls.append(True)
+            return ["sentinel"]
+
+        try:
+            render_torch._render_whole_capsule_raster = fake_raster
+            self.assertEqual(
+                ["sentinel"],
+                render_torch.render_whole([], H=2, W=2, device="cpu"),
+            )
+            self.assertEqual([True], calls)
+        finally:
+            render_torch._render_whole_capsule_raster = original_raster
+            if original_mode is not None:
+                os.environ["SCAIL_POSE2_TORCH_RENDER_MODE"] = original_mode
+
+    def test_torch_nlf_raster_renderer_outputs_nonempty_rgba(self) -> None:
+        try:
+            import numpy as np
+            import torch  # noqa: F401
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"render dependency unavailable: {exc}")
+
+        render_torch = import_render_torch_module()
+        frame_specs = [
+            (
+                np.array([0.0, -100.0, 1000.0], dtype=np.float32),
+                np.array([0.0, 100.0, 1000.0], dtype=np.float32),
+                [1.0, 0.0, 0.0, 1.0],
+            )
+        ]
+
+        frames = render_torch._render_whole_capsule_raster(
+            [frame_specs],
+            H=64,
+            W=64,
+            fx=100.0,
+            fy=100.0,
+            cx=32.0,
+            cy=32.0,
+            radius=21.5,
+            device="cpu",
+        )
+
+        self.assertEqual(1, len(frames))
+        self.assertEqual((64, 64, 4), frames[0].shape)
+        self.assertEqual(np.dtype("uint8"), frames[0].dtype)
+        self.assertGreater(int(frames[0][..., 3].sum()), 0)
+        self.assertGreater(int(frames[0][..., 0].sum()), 0)
+
+    def test_torch_nlf_renderer_keeps_raymarch_rollback_switch(self) -> None:
+        try:
+            import torch  # noqa: F401
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"render dependency unavailable: {exc}")
+
+        render_torch = import_render_torch_module()
+        original_mode = os.environ.get("SCAIL_POSE2_TORCH_RENDER_MODE")
+        original_raster = render_torch._render_whole_capsule_raster
+        calls = []
+
+        def fake_raster(*_args, **_kwargs):
+            calls.append(True)
+            raise AssertionError("raymarch rollback must bypass raster path")
+
+        try:
+            os.environ["SCAIL_POSE2_TORCH_RENDER_MODE"] = "raymarch"
+            render_torch._render_whole_capsule_raster = fake_raster
+            frames = render_torch.render_whole([[]], H=2, W=2, device="cpu")
+            self.assertEqual([], calls)
+            self.assertEqual(1, len(frames))
+            self.assertEqual((2, 2, 4), frames[0].shape)
+        finally:
+            render_torch._render_whole_capsule_raster = original_raster
+            if original_mode is None:
+                os.environ.pop("SCAIL_POSE2_TORCH_RENDER_MODE", None)
+            else:
+                os.environ["SCAIL_POSE2_TORCH_RENDER_MODE"] = original_mode
 
     def test_render_nlf_poses_applies_optional_bbox_alignment(self) -> None:
         try:

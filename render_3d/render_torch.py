@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 import random
@@ -46,12 +47,133 @@ def flatten_specs(specs_list):
     )
 
 
+def _project_points(points, fx, fy, cx, cy):
+    z = points[:, 2].clamp_min(1e-4)
+    u = (fx * points[:, 0] / z) + cx
+    v = (fy * points[:, 1] / z) + cy
+    valid = torch.isfinite(u) & torch.isfinite(v) & (points[:, 2] > 1e-4)
+    return u, v, z, valid
+
+
+def _render_whole_capsule_raster(
+    specs_list, H=480, W=640, fx=500, fy=500, cx=240, cy=320, radius=21.5, device=None
+):
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(device)
+
+    starts_np, ends_np, colors_np, frame_offset_np, frame_count_np = flatten_specs(
+        specs_list
+    )
+    total_cylinders = int(len(starts_np))
+    logging.info(
+        "Render NLF torch raster renderer start: device=%s frames=%s size=%sx%s cylinders=%s",
+        device,
+        len(specs_list),
+        W,
+        H,
+        total_cylinders,
+    )
+
+    if total_cylinders == 0:
+        return [np.zeros((H, W, 4), dtype=np.uint8) for _ in range(len(specs_list))]
+
+    all_starts = torch.from_numpy(starts_np).to(device=device, dtype=torch.float32)
+    all_ends = torch.from_numpy(ends_np).to(device=device, dtype=torch.float32)
+    all_colors = torch.from_numpy(colors_np).to(device=device, dtype=torch.float32)
+
+    u0, v0, z0, valid0 = _project_points(all_starts, fx, fy, cx, cy)
+    u1, v1, z1, valid1 = _project_points(all_ends, fx, fy, cx, cy)
+    depth = ((z0 + z1) * 0.5).clamp_min(1.0)
+    pixel_radius = (((float(fx) + float(fy)) * 0.5) * float(radius) / depth).clamp(
+        min=1.5,
+        max=64.0,
+    )
+    valid = (valid0 & valid1).detach().cpu().numpy()
+    projected = torch.stack((u0, v0, u1, v1, pixel_radius, depth), dim=1).detach().cpu().numpy()
+
+    rendered_frames = []
+    for frame_index in range(len(specs_list)):
+        frame_img = torch.zeros((H, W, 4), device=device, dtype=torch.float32)
+        start_idx = int(frame_offset_np[frame_index])
+        count = int(frame_count_np[frame_index])
+
+        for seg_idx in range(start_idx, start_idx + count):
+            if seg_idx >= total_cylinders or not bool(valid[seg_idx]):
+                continue
+
+            x0, y0, x1, y1, r_px, depth_value = projected[seg_idx]
+            if not np.isfinite([x0, y0, x1, y1, r_px, depth_value]).all():
+                continue
+
+            pad = float(r_px) + 2.0
+            x_min = max(0, int(math.floor(min(x0, x1) - pad)))
+            x_max = min(W, int(math.ceil(max(x0, x1) + pad)) + 1)
+            y_min = max(0, int(math.floor(min(y0, y1) - pad)))
+            y_max = min(H, int(math.ceil(max(y0, y1) + pad)) + 1)
+            if x_min >= x_max or y_min >= y_max:
+                continue
+
+            ys = torch.arange(y_min, y_max, device=device, dtype=torch.float32) + 0.5
+            xs = torch.arange(x_min, x_max, device=device, dtype=torch.float32) + 0.5
+            yy, xx = torch.meshgrid(ys, xs, indexing="ij")
+
+            dx = float(x1 - x0)
+            dy = float(y1 - y0)
+            denom = dx * dx + dy * dy
+            if denom <= 1e-6:
+                closest_x = torch.full_like(xx, float(x0))
+                closest_y = torch.full_like(yy, float(y0))
+            else:
+                t = ((xx - float(x0)) * dx + (yy - float(y0)) * dy) / denom
+                t = t.clamp(0.0, 1.0)
+                closest_x = float(x0) + t * dx
+                closest_y = float(y0) + t * dy
+
+            dist = torch.sqrt((xx - closest_x) ** 2 + (yy - closest_y) ** 2)
+            alpha = (float(r_px) + 0.75 - dist).clamp(0.0, 1.0)
+            if not bool(alpha.any().item()):
+                continue
+
+            color = all_colors[seg_idx].clone()
+            # Keep a simple depth cue without returning to expensive ray marching.
+            depth_factor = max(0.35, min(1.0, 1.0 - (float(depth_value) - 500.0) / 20000.0))
+            rgb = (color[:3] * depth_factor).clamp(0.0, 1.0)
+            alpha = alpha * color[3].clamp(0.0, 1.0)
+            region = frame_img[y_min:y_max, x_min:x_max]
+            write_mask = alpha > region[..., 3]
+            if bool(write_mask.any().item()):
+                region_rgb = region[..., :3]
+                region_rgb[write_mask] = rgb
+                region_alpha = region[..., 3]
+                region_alpha[write_mask] = alpha[write_mask]
+
+        rendered_frames.append((frame_img.clamp(0.0, 1.0) * 255).byte().cpu().numpy())
+
+    return rendered_frames
+
+
 def render_whole(
     specs_list, H=480, W=640, fx=500, fy=500, cx=240, cy=320, radius=21.5, device=None
 ):
     """
     Render cylinders using PyTorch ray marching.
     """
+    render_mode = os.environ.get("SCAIL_POSE2_TORCH_RENDER_MODE", "raster").strip().lower()
+    if render_mode != "raymarch":
+        return _render_whole_capsule_raster(
+            specs_list,
+            H=H,
+            W=W,
+            fx=fx,
+            fy=fy,
+            cx=cx,
+            cy=cy,
+            radius=radius,
+            device=device,
+        )
+
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
