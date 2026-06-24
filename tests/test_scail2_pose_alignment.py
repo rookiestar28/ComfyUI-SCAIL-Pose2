@@ -191,6 +191,43 @@ class Scail2PoseAlignmentTests(unittest.TestCase):
         self.assertEqual((8.0, 2.0, 10.0, 4.0), frame_bboxes(result.pose_video, kind="pose_image")[2].to_tuple())
         self.assertIn("temporal_adjusted_frames=()", result.summary)
 
+    def test_identity_local_stabilization_keeps_independent_adjustments(self) -> None:
+        def build_stream(*, y0: int, offsets: tuple[int, ...]):
+            pose_frames = []
+            mask_frames = []
+            for offset in offsets:
+                pose = image_frame(32, 12)
+                mask = image_frame(32, 12)
+                paint_rect(pose, x0=0, y0=y0, x1=2, y1=y0 + 2, color=BLUE)
+                paint_rect(mask, x0=2 + offset, y0=y0, x1=4 + offset, y1=y0 + 2, color=BLUE)
+                pose_frames.append(pose)
+                mask_frames.append(mask)
+            return pose_frames, mask_frames
+
+        identity_a_pose, identity_a_mask = build_stream(
+            y0=2,
+            offsets=(0, 1, 6, 3, 4),
+        )
+        identity_b_pose, identity_b_mask = build_stream(
+            y0=6,
+            offsets=(8, 9, 10, 15, 12),
+        )
+
+        identity_a = align_pose_video_to_mask(
+            pose_video=identity_a_pose,
+            pose_video_mask=identity_a_mask,
+        )
+        identity_b = align_pose_video_to_mask(
+            pose_video=identity_b_pose,
+            pose_video_mask=identity_b_mask,
+        )
+
+        self.assertEqual((2,), identity_a.stabilization.adjusted_frame_indices)
+        self.assertEqual((3,), identity_b.stabilization.adjusted_frame_indices)
+        self.assertEqual((4.0, 2.0, 6.0, 4.0), frame_bboxes(identity_a.pose_video, kind="pose_image")[2].to_tuple())
+        self.assertEqual((12.0, 6.0, 14.0, 8.0), frame_bboxes(identity_b.pose_video, kind="pose_image")[2].to_tuple())
+        self.assertEqual((13.0, 6.0, 15.0, 8.0), frame_bboxes(identity_b.pose_video, kind="pose_image")[3].to_tuple())
+
     def test_temporal_jitter_diagnostic_reports_one_frame_scale_impulse(self) -> None:
         pose_frames = []
         mask_frames = []

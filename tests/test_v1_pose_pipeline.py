@@ -758,16 +758,22 @@ class V1PosePipelineTests(unittest.TestCase):
             pose_video_mask[0, 0:2, 6:8, 2] = 1.0
             pose_video_mask[0, 0:2, 0:2, 0] = 1.0
 
-            image, mask = render_node.predict(
-                pose_input,
-                8,
-                8,
-                bboxes=[[[0, 0, 2, 2], [6, 0, 8, 2]]],
-                pose_video_mask=pose_video_mask,
-                render_backend="torch",
-            )
+            with self.assertLogs(level="INFO") as logs:
+                image, mask = render_node.predict(
+                    pose_input,
+                    8,
+                    8,
+                    bboxes=[[[0, 0, 2, 2], [6, 0, 8, 2]]],
+                    pose_video_mask=pose_video_mask,
+                    render_backend="torch",
+                )
 
             self.assertEqual([1, 0], render_calls)
+            log_output = "\n".join(logs.output)
+            self.assertIn("bbox diagnostics", log_output)
+            self.assertIn("ambiguous=True", log_output)
+            self.assertIn("identity alignment: identity=0 person=1", log_output)
+            self.assertIn("identity alignment: identity=1 person=0", log_output)
             self.assertEqual((1, 4, 4, 3), tuple(image.shape))
             self.assertEqual((1, 4, 4), tuple(mask.shape))
             self.assertGreater(float(mask[0, 0, 0].item()), 0.5)
