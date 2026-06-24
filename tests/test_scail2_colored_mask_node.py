@@ -295,6 +295,9 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         )
 
         self.assertEqual((0, 1), result.object_order)
+        self.assertEqual(2, result.identity.identity_count)
+        self.assertEqual((0, 1), result.identity.selected_source_indices)
+        self.assertEqual((), result.identity.warnings)
         self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 0], torch.tensor(BLUE_RGB_FLOAT)))
         self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 1], torch.tensor(RED_RGB_FLOAT)))
 
@@ -320,6 +323,9 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         )
 
         self.assertEqual((1, 0), result.object_order)
+        self.assertEqual(2, result.identity.identity_count)
+        self.assertEqual((1, 0), result.identity.selected_source_indices)
+        self.assertEqual((), result.identity.warnings)
         self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 0], torch.tensor(BLUE_RGB_FLOAT)))
         self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 1], torch.tensor(BLACK_RGB_FLOAT)))
         self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 2], torch.tensor(RED_RGB_FLOAT)))
@@ -349,6 +355,12 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         )
 
         self.assertEqual((1,), result.object_order)
+        self.assertEqual(1, result.identity.identity_count)
+        self.assertEqual((1,), result.identity.selected_source_indices)
+        self.assertIn(
+            "single_identity_selected_from_multi_object_track",
+            result.identity.warnings,
+        )
         self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 0], torch.tensor(WHITE_RGB_FLOAT)))
         self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 1], torch.tensor(BLUE_RGB_FLOAT)))
         self.assertTrue(torch.equal(result.pose_video_mask[0, 0, 2], torch.tensor(BLUE_RGB_FLOAT)))
@@ -475,6 +487,9 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         )
 
         self.assertEqual((1, 0), result.object_order)
+        self.assertEqual(2, result.identity.identity_count)
+        self.assertEqual((1, 0), result.identity.selected_source_indices)
+        self.assertEqual((), result.identity.warnings)
         self.assertEqual(BLUE_RGB_FLOAT, pixel(result.pose_video_mask, col=0))
         self.assertEqual(BLACK_RGB_FLOAT, pixel(result.pose_video_mask, col=1))
         self.assertEqual(RED_RGB_FLOAT, pixel(result.pose_video_mask, col=2))
@@ -500,6 +515,12 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         )
 
         self.assertEqual((1,), result.object_order)
+        self.assertEqual(1, result.identity.identity_count)
+        self.assertEqual((1,), result.identity.selected_source_indices)
+        self.assertIn(
+            "single_identity_selected_from_multi_object_track",
+            result.identity.warnings,
+        )
         self.assertEqual(WHITE_RGB_FLOAT, pixel(result.pose_video_mask, col=0))
         self.assertEqual(BLUE_RGB_FLOAT, pixel(result.pose_video_mask, col=1))
         self.assertEqual(BLUE_RGB_FLOAT, pixel(result.pose_video_mask, col=2))

@@ -13,6 +13,8 @@
         { "name": "reference_image_mask", "type": "IMAGE" }
       ],
       "sort_modes": ["none", "left_to_right", "area"],
+      "identity_palette": ["blue", "red", "green", "magenta", "cyan", "yellow"],
+      "identity_order_source": "selected_object_order_after_sort_and_object_indices_filter",
       "backgrounds": {
         "animation": { "driving": "black", "reference": "white" },
         "replacement": { "driving": "white", "reference": "black" }
@@ -29,6 +31,12 @@
         "replacement": "driving_video"
       },
       "modes": ["animation", "replacement"],
+      "identity_diagnostics": {
+        "driving_identity_count": "reported_from_pose_video_mask_semantic_colors",
+        "reference_identity_count": "reported_from_ref_mask_semantic_colors",
+        "additional_reference_identity_counts": "reported_per_additional_ref_mask",
+        "under_provisioned_references": "warning_only"
+      },
       "supports_additional_references": true,
       "supports_continuation_metadata": false
     },
@@ -53,6 +61,7 @@
     "ref_mask_indices",
     "driving_mask_indices",
     "additional_references",
+    "identity",
     "source_kind",
     "unsupported_wrapper_features"
   ],
@@ -86,6 +95,16 @@
       "additional_references": {
         "requires_paired_image_and_mask": true,
         "mask_frame_count": 1
+      },
+      "identity": {
+        "fields": [
+          "driving_identity_count",
+          "reference_identity_count",
+          "additional_reference_identity_counts",
+          "reference_slot_count",
+          "warnings"
+        ],
+        "under_provisioned_references": "warning_only"
       }
     },
     "target": {

@@ -258,6 +258,62 @@ class V1PosePipelineTests(unittest.TestCase):
                 else:
                     sys.modules[name] = original_module
 
+    def test_dwpose_overlay_skips_multi_identity_person_count_mismatch(self) -> None:
+        try:
+            import numpy as np
+            import torch
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"render dependencies unavailable: {exc}")
+
+        import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        pose_draw_package_name = f"{PACKAGE_NAME}.pose_draw"
+        draw_module_name = f"{pose_draw_package_name}.draw_pose_utils"
+
+        pose_draw_package = types.ModuleType(pose_draw_package_name)
+        pose_draw_package.__path__ = []
+        draw_module = types.ModuleType(draw_module_name)
+
+        def draw_pose_to_canvas_np(*_args, **_kwargs):
+            raise AssertionError("mismatched DWPose overlay must be skipped")
+
+        draw_module.draw_pose_to_canvas_np = draw_pose_to_canvas_np
+        original_modules = {
+            name: sys.modules.get(name)
+            for name in (pose_draw_package_name, draw_module_name)
+        }
+        try:
+            sys.modules[pose_draw_package_name] = pose_draw_package
+            sys.modules[draw_module_name] = draw_module
+
+            frames = torch.zeros((1, 4, 4, 3), dtype=torch.float32)
+            mask = torch.zeros((1, 4, 4), dtype=torch.float32)
+            dw_pose_input = [
+                {
+                    "bodies": {
+                        "candidate": np.zeros((1, 18, 2), dtype=np.float32),
+                    },
+                }
+            ]
+
+            output_frames, output_mask = nodes_module._overlay_dwpose_2d_on_frames(
+                frames_tensor=frames,
+                mask=mask,
+                dw_pose_input=dw_pose_input,
+                draw_face=True,
+                draw_hands=True,
+                identity_count=2,
+            )
+
+            self.assertTrue(torch.equal(frames, output_frames))
+            self.assertTrue(torch.equal(mask, output_mask))
+        finally:
+            for name, original_module in original_modules.items():
+                if original_module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = original_module
+
     def test_render_nlf_poses_renders_source_size_then_emits_half_output(self) -> None:
         try:
             import numpy as np
@@ -384,6 +440,89 @@ class V1PosePipelineTests(unittest.TestCase):
             self.assertEqual((2.0, 2.0, 4.0, 4.0), frame_bboxes(aligned_image, kind="pose_image")[0].to_tuple())
             self.assertEqual((0.0, 0.0, 1.0, 1.0), frame_bboxes(raw_mask, kind="mask")[0].to_tuple())
             self.assertEqual((2.0, 2.0, 4.0, 4.0), frame_bboxes(aligned_mask, kind="mask")[0].to_tuple())
+        finally:
+            for name, original_module in original_modules.items():
+                if original_module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = original_module
+
+    def test_render_nlf_poses_composes_multi_person_identities_independently(self) -> None:
+        try:
+            import numpy as np
+            import torch
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"render dependencies unavailable: {exc}")
+
+        package = import_root_package()
+        render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]()
+        package_prefix = PACKAGE_NAME
+        nlf_package_name = f"{package_prefix}.NLFPoseExtract"
+        render_module_name = f"{nlf_package_name}.nlf_render"
+        align3d_module_name = f"{nlf_package_name}.align3d"
+
+        nlf_package = types.ModuleType(nlf_package_name)
+        render_module = types.ModuleType(render_module_name)
+        align3d_module = types.ModuleType(align3d_module_name)
+        render_calls = []
+
+        def intrinsic_matrix_from_field_of_view(_shape):
+            return np.eye(3, dtype=np.float32)
+
+        def render_nlf_as_images(pose_stream, _dw_pose_input, height, width, *_args, **_kwargs):
+            marker = int(float(pose_stream[0][0, 0, 0].item()))
+            render_calls.append(marker)
+            frame = np.zeros((height, width, 4), dtype=np.uint8)
+            if marker == 0:
+                frame[0:2, 0:2, 2] = 255
+                frame[0:2, 0:2, 3] = 255
+            else:
+                frame[0:2, 6:8, 1] = 255
+                frame[0:2, 6:8, 3] = 255
+            return [frame]
+
+        def render_multi_nlf_as_images(*_args, **_kwargs):
+            raise AssertionError("multi-person semantic masks must use per-identity rendering")
+
+        render_module.intrinsic_matrix_from_field_of_view = intrinsic_matrix_from_field_of_view
+        render_module.render_nlf_as_images = render_nlf_as_images
+        render_module.render_multi_nlf_as_images = render_multi_nlf_as_images
+        render_module.shift_dwpose_according_to_nlf = lambda *_args, **_kwargs: None
+        render_module.process_data_to_COCO_format = lambda value: value
+        align3d_module.solve_new_camera_params_central = lambda *_args, **_kwargs: (np.eye(3), 1.0, 1.0)
+        align3d_module.solve_new_camera_params_down = lambda *_args, **_kwargs: (np.eye(3), 1.0, 1.0)
+
+        original_modules = {
+            name: sys.modules.get(name)
+            for name in (nlf_package_name, render_module_name, align3d_module_name)
+        }
+        try:
+            sys.modules[nlf_package_name] = nlf_package
+            sys.modules[render_module_name] = render_module
+            sys.modules[align3d_module_name] = align3d_module
+
+            pose_frame = torch.zeros((2, 1, 3), dtype=torch.float32)
+            pose_frame[1, 0, 0] = 1.0
+            pose_input = [pose_frame]
+            pose_video_mask = torch.zeros((1, 8, 8, 3), dtype=torch.float32)
+            pose_video_mask[0, 0:2, 6:8, 2] = 1.0
+            pose_video_mask[0, 0:2, 0:2, 0] = 1.0
+
+            image, mask = render_node.predict(
+                pose_input,
+                8,
+                8,
+                bboxes=[[[0, 0, 2, 2], [6, 0, 8, 2]]],
+                pose_video_mask=pose_video_mask,
+                render_backend="torch",
+            )
+
+            self.assertEqual([1, 0], render_calls)
+            self.assertEqual((1, 4, 4, 3), tuple(image.shape))
+            self.assertEqual((1, 4, 4), tuple(mask.shape))
+            self.assertGreater(float(mask[0, 0, 0].item()), 0.5)
+            self.assertGreater(float(mask[0, 0, 3].item()), 0.5)
+            self.assertEqual((0.0, 0.0, 4.0, 1.0), frame_bboxes(mask, kind="mask")[0].to_tuple())
         finally:
             for name, original_module in original_modules.items():
                 if original_module is None:

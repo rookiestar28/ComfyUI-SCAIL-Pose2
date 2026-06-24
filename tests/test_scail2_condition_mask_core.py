@@ -377,6 +377,45 @@ class Scail2ConditionMaskCoreTests(unittest.TestCase):
         self.assertTrue(replacement.replace_flag)
         self.assertEqual(5, animation.num_frames)
 
+    def test_condition_records_multi_identity_reference_slot_diagnostics(self) -> None:
+        base = build_scail2_condition(
+            mode="animation",
+            ref_image="ref",
+            ref_mask_frames=frames_from_colors([BLUE]),
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=frames_from_colors([BLUE, (255, 0, 0), BLUE, (255, 0, 0), BLUE]),
+            width=1,
+            height=1,
+        )
+        with_extra = build_scail2_condition(
+            mode="animation",
+            ref_image="ref",
+            ref_mask_frames=frames_from_colors([BLUE]),
+            pose_video="pose",
+            pose_frame_count=5,
+            driving_mask_frames=frames_from_colors([BLUE, (255, 0, 0), BLUE, (255, 0, 0), BLUE]),
+            width=1,
+            height=1,
+            additional_ref_images=["extra"],
+            additional_ref_masks=[frames_from_colors([(255, 0, 0)])],
+        )
+
+        self.assertEqual(2, base.identity.driving_identity_count)
+        self.assertEqual(1, base.identity.reference_identity_count)
+        self.assertEqual(1, base.identity.reference_slot_count)
+        self.assertIn(
+            "multi_identity_reference_slots_under_provisioned",
+            base.identity.warnings,
+        )
+        self.assertEqual(2, with_extra.identity.driving_identity_count)
+        self.assertEqual((1,), with_extra.identity.additional_reference_identity_counts)
+        self.assertEqual(2, with_extra.identity.reference_slot_count)
+        self.assertNotIn(
+            "multi_identity_reference_slots_under_provisioned",
+            with_extra.identity.warnings,
+        )
+
     def test_condition_mode_applies_colored_mask_replacement_polarity(self) -> None:
         ref_mask = [[[BLUE, WHITE]]]
         driving_mask = [[[BLUE, BLACK]] for _frame in range(5)]

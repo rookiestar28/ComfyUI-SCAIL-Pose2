@@ -15,6 +15,7 @@ class NormalizedNLFBBoxes:
     source: str
     warnings: tuple[str, ...] = ()
     ambiguous: bool = False
+    candidates: tuple[tuple[BoundingBox, ...], ...] = ()
 
     @property
     def frame_count(self) -> int:
@@ -24,12 +25,21 @@ class NormalizedNLFBBoxes:
     def valid_count(self) -> int:
         return sum(1 for box in self.boxes if box is not None)
 
+    @property
+    def max_person_count(self) -> int:
+        return max((len(frame) for frame in self.candidates), default=0)
+
+    @property
+    def is_multi_person(self) -> bool:
+        return self.max_person_count > 1
+
     def summary(self) -> str:
         warning_text = ",".join(self.warnings) if self.warnings else "none"
         return (
             "nlf_bboxes "
             f"source={self.source} frames={self.frame_count} "
-            f"valid={self.valid_count} ambiguous={self.ambiguous} "
+            f"valid={self.valid_count} max_persons={self.max_person_count} "
+            f"ambiguous={self.ambiguous} "
             f"warnings={warning_text}"
         )
 
@@ -76,21 +86,24 @@ def _box_from_xyxy(value: Any) -> BoundingBox | None:
     return BoundingBox(x0, y0, x1, y1)
 
 
-def _flatten_frame_box(frame_value: Any) -> tuple[BoundingBox | None, bool, str | None]:
+def _normalize_frame_boxes(
+    frame_value: Any,
+) -> tuple[tuple[BoundingBox, ...], BoundingBox | None, bool, str | None]:
     if _is_box_like(frame_value):
-        return _box_from_xyxy(frame_value), False, None
+        box = _box_from_xyxy(frame_value)
+        return ((box,) if box is not None else ()), box, False, None
     if not isinstance(frame_value, (list, tuple)) or not frame_value:
-        return None, False, None
+        return (), None, False, None
 
     candidates = [_box_from_xyxy(candidate) for candidate in frame_value]
     valid = [box for box in candidates if box is not None]
     if not valid:
-        return None, False, "empty_frame_boxes"
+        return (), None, False, "empty_frame_boxes"
     if len(valid) > 1:
         # Multi-person bbox payloads cannot be safely paired to multi-person NLF
         # skeletons at this render seam without an explicit identity contract.
-        return max(valid, key=lambda box: box.area), True, "multi_person_bbox_payload"
-    return valid[0], False, None
+        return tuple(valid), max(valid, key=lambda box: box.area), True, "multi_person_bbox_payload"
+    return tuple(valid), valid[0], False, None
 
 
 def _empty_result(
@@ -102,6 +115,7 @@ def _empty_result(
     count = max(int(frame_count or 0), 0)
     return NormalizedNLFBBoxes(
         boxes=tuple(None for _frame in range(count)),
+        candidates=tuple(tuple() for _frame in range(count)),
         source=source,
         warnings=warnings,
     )
@@ -143,9 +157,11 @@ def normalize_nlf_bboxes(
 
     warnings: list[str] = []
     boxes: list[BoundingBox | None] = []
+    candidates: list[tuple[BoundingBox, ...]] = []
     ambiguous = False
     for frame_value in raw_frames:
-        box, frame_ambiguous, warning = _flatten_frame_box(frame_value)
+        frame_candidates, box, frame_ambiguous, warning = _normalize_frame_boxes(frame_value)
+        candidates.append(frame_candidates)
         boxes.append(box)
         ambiguous = ambiguous or frame_ambiguous
         if warning is not None and warning not in warnings:
@@ -155,19 +171,51 @@ def normalize_nlf_bboxes(
         expected = max(int(frame_count), 0)
         if len(boxes) == 1 and expected > 1:
             boxes = boxes * expected
+            candidates = candidates * expected
             warnings.append("broadcast_single_bbox")
         elif len(boxes) < expected:
             boxes.extend(None for _frame in range(expected - len(boxes)))
+            candidates.extend(tuple() for _frame in range(expected - len(candidates)))
             warnings.append("padded_missing_bboxes")
         elif len(boxes) > expected:
             boxes = boxes[:expected]
+            candidates = candidates[:expected]
             warnings.append("truncated_extra_bboxes")
 
     return NormalizedNLFBBoxes(
         boxes=tuple(boxes),
+        candidates=tuple(candidates),
         source=source,
         warnings=tuple(dict.fromkeys(warnings)),
         ambiguous=ambiguous,
+    )
+
+
+def select_nlf_bboxes_for_identity(
+    normalized: NormalizedNLFBBoxes,
+    *,
+    identity_index: int,
+) -> NormalizedNLFBBoxes:
+    """Select a stable per-person bbox stream from a normalized multi-person payload."""
+
+    index = int(identity_index)
+    warnings = list(normalized.warnings)
+    if index < 0:
+        raise ValueError("identity_index must be non-negative")
+    selected: list[BoundingBox | None] = []
+    for frame_candidates in normalized.candidates:
+        if index < len(frame_candidates):
+            selected.append(frame_candidates[index])
+        else:
+            selected.append(None)
+    if any(box is None for box in selected):
+        warnings.append("identity_bbox_missing_frames")
+    return NormalizedNLFBBoxes(
+        boxes=tuple(selected),
+        candidates=tuple((box,) if box is not None else tuple() for box in selected),
+        source=f"{normalized.source}.identity_{index}",
+        warnings=tuple(dict.fromkeys(warnings)),
+        ambiguous=False,
     )
 
 

@@ -14,7 +14,11 @@ if str(ROOT) not in sys.path:
 
 import torch
 
-from scail2.condition import SCAIL2Condition, TYPE_SCAIL2_CONDITION
+from scail2.condition import (
+    SCAIL2Condition,
+    SCAIL2ConditionIdentityDiagnostics,
+    TYPE_SCAIL2_CONDITION,
+)
 from scail2.replacement_mask import (
     _build_tensor_subject_mask,
     _blur_mask,
@@ -42,6 +46,11 @@ def _condition(*, frames: int, height: int, width: int):
         pose_video="pose",
         driving_mask_indices=torch.zeros((frames, height, width), dtype=torch.int8),
         additional_references=(),
+        identity=SCAIL2ConditionIdentityDiagnostics(
+            driving_identity_count=0,
+            reference_identity_count=0,
+            additional_reference_identity_counts=(),
+        ),
     )
 
 

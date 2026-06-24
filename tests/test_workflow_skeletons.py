@@ -74,6 +74,10 @@ class WorkflowSkeletonTests(unittest.TestCase):
             "pose_video_mask alignment is preferred over bbox-only repair when connected",
             nlf_render["geometry_contract"]["pose_video_mask_priority"],
         )
+        self.assertIn(
+            "semantic identity colors",
+            nlf_render["geometry_contract"]["multi_person_identity_composition"],
+        )
 
     def test_scail2_condition_skeleton_lists_unsupported_wrapper_features(self) -> None:
         data = load_skeleton("scail2_condition_builder.json")
@@ -111,6 +115,11 @@ class WorkflowSkeletonTests(unittest.TestCase):
             for node in data["nodes"]
             if node["id"] == "scail2_condition"
         )
+        colored_masks = next(node for node in data["nodes"] if node["id"] == "colored_masks")
+        self.assertEqual(
+            ["blue", "red", "green", "magenta", "cyan", "yellow"],
+            colored_masks["identity_palette"],
+        )
         self.assertEqual(
             {
                 "animation": "pose_video",
@@ -118,11 +127,16 @@ class WorkflowSkeletonTests(unittest.TestCase):
             },
             condition_node["mode_video_sources"],
         )
+        self.assertEqual(
+            "warning_only",
+            condition_node["identity_diagnostics"]["under_provisioned_references"],
+        )
         self.assertTrue(
             {
                 "mode",
                 "replace_flag",
                 "driving_mask_indices",
+                "identity",
                 "source_kind",
             }.issubset(fields)
         )
@@ -165,6 +179,16 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertTrue(
             schema["mask_data_flow"]["native_runtime_masks_authoritative"]
+        )
+        self.assertEqual(
+            [
+                "driving_identity_count",
+                "reference_identity_count",
+                "additional_reference_identity_counts",
+                "reference_slot_count",
+                "warnings",
+            ],
+            schema["identity"]["fields"],
         )
         self.assertFalse(
             schema["mask_data_flow"]["full_resolution_indices_in_native_payload"]
@@ -301,6 +325,15 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertEqual(
             "reject",
             data["native_wrapper_contract"]["simultaneous_legacy_and_native"],
+        )
+        self.assertEqual(
+            ["blue", "red", "green", "magenta", "cyan", "yellow"],
+            data["multi_person_identity_contract"]["identity_palette"],
+        )
+        self.assertTrue(
+            data["multi_person_identity_contract"][
+                "under_provisioned_references_are_warnings"
+            ]
         )
         self.assertFalse(data["degradation"]["v1_fallback_is_full_scail2_parity"])
 
@@ -465,6 +498,15 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertTrue(
             context_contract["samples_and_noise_mask_must_share_latent_timeline"]
+        )
+        self.assertEqual(
+            ["blue", "red", "green", "magenta", "cyan", "yellow"],
+            data["multi_person_identity_contract"]["identity_palette"],
+        )
+        self.assertTrue(
+            data["multi_person_identity_contract"][
+                "under_provisioned_references_are_warnings"
+            ]
         )
 
     def test_wananimate_fallback_skeleton_requires_explicit_degradation(self) -> None:

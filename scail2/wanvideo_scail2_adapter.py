@@ -136,6 +136,7 @@ def _payload_schema(
             "requires_paired_image_and_mask": True,
             "mask_frame_count": 1,
         },
+        "identity": condition.identity.as_dict(),
         "degradation": {
             "v1_requires_explicit_enable": True,
             "v1_full_scail2_parity": False,
@@ -217,6 +218,7 @@ def build_wanvideo_scail2_adapter_payload(
         "source": {
             "source_kind": scail2_condition.source_kind,
         },
+        "identity": scail2_condition.identity.as_dict(),
         "rgb_masks": {
             "indices": "omitted_from_native_payload",
             "native_runtime_masks_authoritative": True,

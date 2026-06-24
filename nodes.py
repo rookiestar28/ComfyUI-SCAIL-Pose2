@@ -84,6 +84,12 @@ from .scail2.nlf_geometry import (
     normalize_nlf_bboxes,
     resize_bhwc_video,
     resize_mask_video,
+    select_nlf_bboxes_for_identity,
+)
+from .scail2.geometry import frame_bboxes
+from .scail2.identity import (
+    identity_count_from_semantic_mask,
+    semantic_identity_rgb_mask,
 )
 from .scail2.pose_alignment import align_pose_video_to_mask
 
@@ -104,6 +110,7 @@ def _overlay_dwpose_2d_on_frames(
     dw_pose_input,
     draw_face,
     draw_hands,
+    identity_count=None,
 ):
     if dw_pose_input is None or (not draw_face and not draw_hands):
         return frames_tensor, mask
@@ -114,6 +121,17 @@ def _overlay_dwpose_2d_on_frames(
 
     output_height = int(frames_tensor.shape[1])
     output_width = int(frames_tensor.shape[2])
+    person_count = _dwpose_person_count(dw_pose_input)
+    if identity_count is not None and int(identity_count) > 0:
+        expected = int(identity_count)
+        if person_count not in {0, expected}:
+            logging.warning(
+                "Render NLF Poses skipped DWPose overlay: identity/person "
+                "count mismatch identities=%s dwpose_persons=%s",
+                expected,
+                person_count,
+            )
+            return frames_tensor, mask
     overlay_frames = draw_pose_to_canvas_np(
         dw_pose_input,
         pool=None,
@@ -162,6 +180,107 @@ def _overlay_dwpose_2d_on_frames(
         bool(draw_hands),
     )
     return result, mask_result
+
+
+def _dwpose_person_count(dw_pose_input):
+    try:
+        return int(dw_pose_input[0]["bodies"]["candidate"].shape[0])
+    except Exception:
+        return 0
+
+
+def _pose_person_count(pose_input):
+    for frame in pose_input:
+        try:
+            count = int(frame.shape[0])
+            if count > 0:
+                return count
+        except Exception:
+            try:
+                count = len(frame)
+                if count > 0:
+                    return count
+            except TypeError:
+                continue
+    return 0
+
+
+def _slice_pose_input_person(pose_input, person_index):
+    sliced = []
+    for frame in pose_input:
+        try:
+            if int(frame.shape[0]) > person_index:
+                sliced.append(frame[person_index : person_index + 1])
+            else:
+                sliced.append(frame[:0])
+        except Exception:
+            sliced.append([frame[person_index]] if len(frame) > person_index else [])
+    return sliced
+
+
+def _best_person_index_for_identity(
+    *,
+    normalized_bboxes,
+    pose_video_mask,
+    identity_index,
+    person_count,
+):
+    if person_count <= 0:
+        return None
+    if normalized_bboxes.max_person_count <= 1:
+        return identity_index if identity_index < person_count else None
+    identity_mask = semantic_identity_rgb_mask(
+        pose_video_mask,
+        identity_index=identity_index,
+    )
+    target_boxes = frame_bboxes(identity_mask, kind="semantic_rgb_mask")
+    best_index = None
+    best_score = None
+    for person_index in range(min(person_count, normalized_bboxes.max_person_count)):
+        candidate = select_nlf_bboxes_for_identity(
+            normalized_bboxes,
+            identity_index=person_index,
+        )
+        distances = []
+        for target_box, candidate_box in zip(target_boxes, candidate.boxes):
+            if target_box is None or candidate_box is None:
+                continue
+            dx = target_box.center_x - candidate_box.center_x
+            dy = target_box.center_y - candidate_box.center_y
+            distances.append((dx * dx + dy * dy) ** 0.5)
+        if not distances:
+            continue
+        score = sum(distances) / len(distances)
+        if best_score is None or score < best_score:
+            best_score = score
+            best_index = person_index
+    if best_index is None and identity_index < person_count:
+        return identity_index
+    return best_index
+
+
+def _composite_identity_renders(rendered_tensors):
+    _require_dependency("torch", torch)
+    if not rendered_tensors:
+        return None, None
+    result = torch.zeros_like(rendered_tensors[0])
+    mask = torch.zeros(
+        rendered_tensors[0].shape[:3],
+        device=rendered_tensors[0].device,
+        dtype=torch.float32,
+    )
+    for tensor in rendered_tensors:
+        active = (tensor[..., :3] > 0.001).any(dim=-1)
+        result[active] = tensor[active]
+        mask = torch.maximum(mask, active.to(device=mask.device, dtype=mask.dtype))
+    return result, mask
+
+
+def _nlf_frames_to_tensors(frames_np):
+    _require_dependency("numpy", np)
+    _require_dependency("torch", torch)
+    frames_tensor = torch.from_numpy(np.stack(frames_np, axis=0)).contiguous() / 255.0
+    return frames_tensor[..., :3].cpu().float(), (frames_tensor[..., -1] > 0.5).cpu().float()
 
 
 def _load_vitpose_utils():
@@ -550,19 +669,119 @@ class RenderNLFPoses:
         else:
             intrinsic_matrix = ori_camera_pose
 
-        if pose_input[0].shape[0] > 1:
-            frames_np = render_multi_nlf_as_images(pose_input, None, active_render_height, active_render_width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=False, draw_hands=False, render_backend = render_backend)
-        else:
-            frames_np = render_nlf_as_images(pose_input, None, active_render_height, active_render_width, len(pose_input), intrinsic_matrix=intrinsic_matrix, draw_face=False, draw_hands=False, render_backend = render_backend)
-
-        frames_tensor = torch.from_numpy(np.stack(frames_np, axis=0)).contiguous() / 255.0
-        frames_tensor, mask = frames_tensor[..., :3].cpu().float(), (frames_tensor[..., -1] > 0.5).cpu().float()
-
         normalized_bboxes = normalize_nlf_bboxes(bboxes, frame_count=len(pose_input))
         if bboxes is not None:
             logging.info("Render NLF Poses bbox diagnostics: %s", normalized_bboxes.summary())
 
-        if pose_video_mask is not None:
+        pose_person_count = _pose_person_count(pose_input)
+        semantic_identity_count = (
+            identity_count_from_semantic_mask(pose_video_mask)
+            if pose_video_mask is not None
+            else 0
+        )
+        used_identity_composition = False
+        frames_tensor = None
+        mask = None
+        if (
+            pose_video_mask is not None
+            and semantic_identity_count > 0
+            and pose_person_count > 1
+        ):
+            rendered_identity_tensors = []
+            used_person_indices = []
+            for identity_index in range(min(semantic_identity_count, pose_person_count)):
+                person_index = _best_person_index_for_identity(
+                    normalized_bboxes=normalized_bboxes,
+                    pose_video_mask=pose_video_mask,
+                    identity_index=identity_index,
+                    person_count=pose_person_count,
+                )
+                if person_index is None:
+                    logging.warning(
+                        "Render NLF Poses skipped identity render: "
+                        "identity=%s person_count=%s",
+                        identity_index,
+                        pose_person_count,
+                    )
+                    continue
+                identity_pose_input = _slice_pose_input_person(pose_input, person_index)
+                identity_frames_np = render_nlf_as_images(
+                    identity_pose_input,
+                    None,
+                    active_render_height,
+                    active_render_width,
+                    len(pose_input),
+                    intrinsic_matrix=intrinsic_matrix,
+                    draw_face=False,
+                    draw_hands=False,
+                    render_backend=render_backend,
+                )
+                identity_tensor, _identity_mask = _nlf_frames_to_tensors(identity_frames_np)
+                identity_semantic_mask = semantic_identity_rgb_mask(
+                    pose_video_mask,
+                    identity_index=identity_index,
+                )
+                identity_alignment = align_pose_video_to_mask(
+                    pose_video=identity_tensor,
+                    pose_video_mask=identity_semantic_mask,
+                )
+                rendered_identity_tensors.append(identity_alignment.pose_video.cpu().float())
+                used_person_indices.append(person_index)
+                logging.info(
+                    "Render NLF Poses identity alignment: identity=%s person=%s %s",
+                    identity_index,
+                    person_index,
+                    identity_alignment.summary,
+                )
+
+            composed_frames, composed_mask = _composite_identity_renders(
+                rendered_identity_tensors
+            )
+            if composed_frames is not None and composed_mask is not None:
+                frames_tensor = composed_frames.cpu().float()
+                mask = composed_mask.cpu().float()
+                used_identity_composition = True
+                logging.info(
+                    "Render NLF Poses identity composition: identities=%s "
+                    "pose_persons=%s used_person_indices=%s",
+                    semantic_identity_count,
+                    pose_person_count,
+                    used_person_indices,
+                )
+            else:
+                logging.warning(
+                    "Render NLF Poses identity composition produced no frames; "
+                    "falling back to legacy render path"
+                )
+
+        if frames_tensor is None or mask is None:
+            if pose_person_count > 1:
+                frames_np = render_multi_nlf_as_images(
+                    pose_input,
+                    None,
+                    active_render_height,
+                    active_render_width,
+                    len(pose_input),
+                    intrinsic_matrix=intrinsic_matrix,
+                    draw_face=False,
+                    draw_hands=False,
+                    render_backend=render_backend,
+                )
+            else:
+                frames_np = render_nlf_as_images(
+                    pose_input,
+                    None,
+                    active_render_height,
+                    active_render_width,
+                    len(pose_input),
+                    intrinsic_matrix=intrinsic_matrix,
+                    draw_face=False,
+                    draw_hands=False,
+                    render_backend=render_backend,
+                )
+            frames_tensor, mask = _nlf_frames_to_tensors(frames_np)
+
+        if pose_video_mask is not None and not used_identity_composition:
             alignment = align_pose_video_to_mask(
                 pose_video=frames_tensor,
                 pose_video_mask=pose_video_mask,
@@ -617,6 +836,7 @@ class RenderNLFPoses:
             dw_pose_input=dw_pose_input,
             draw_face=draw_face,
             draw_hands=draw_hands,
+            identity_count=semantic_identity_count if semantic_identity_count > 0 else None,
         )
 
         return (frames_tensor, mask)

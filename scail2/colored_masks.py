@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
+from .identity import IdentityContractDiagnostics, build_identity_slots
 from .observability import safe_value_summary
 
 BLACK_RGB_FLOAT = (0.0, 0.0, 0.0)
@@ -55,6 +56,9 @@ class ColoredMaskRenderResult:
     replacement_mode: bool
     driving_background: tuple[float, float, float]
     reference_background: tuple[float, float, float]
+    identity: IdentityContractDiagnostics = field(
+        default_factory=lambda: IdentityContractDiagnostics(slots=())
+    )
 
 
 ProgressCallback = Callable[[str], None]
@@ -782,8 +786,15 @@ def render_scail2_colored_mask_pair(
             )
         sorted_order = _sorted_object_order_tensor(tensor_driving, sort_by=sort_by)
         order = _filtered_order(sorted_order, object_indices)
+        identity = build_identity_slots(
+            object_order=order,
+            object_stats=_object_stats_tensor(tensor_driving),
+            frame_count=tensor_driving.frame_count,
+            object_count=tensor_driving.object_count,
+        )
         if progress is not None:
             progress(f"object order sort_by={sort_by} selected={list(order)}")
+            progress(identity.summary())
 
         driving_background = WHITE_RGB_FLOAT if replacement_mode else BLACK_RGB_FLOAT
         reference_background = BLACK_RGB_FLOAT if replacement_mode else WHITE_RGB_FLOAT
@@ -864,6 +875,7 @@ def render_scail2_colored_mask_pair(
             replacement_mode=bool(replacement_mode),
             driving_background=driving_background,
             reference_background=reference_background,
+            identity=identity,
         )
 
     driving = _normalize_track_data(driving_track_data)
@@ -874,8 +886,15 @@ def render_scail2_colored_mask_pair(
         )
     sorted_order = _sorted_object_order(driving, sort_by=sort_by)
     order = _filtered_order(sorted_order, object_indices)
+    identity = build_identity_slots(
+        object_order=order,
+        object_stats=_object_stats(driving),
+        frame_count=driving.frame_count,
+        object_count=driving.object_count,
+    )
     if progress is not None:
         progress(f"object order sort_by={sort_by} selected={list(order)}")
+        progress(identity.summary())
 
     driving_background = WHITE_RGB_FLOAT if replacement_mode else BLACK_RGB_FLOAT
     reference_background = BLACK_RGB_FLOAT if replacement_mode else WHITE_RGB_FLOAT
@@ -934,6 +953,7 @@ def render_scail2_colored_mask_pair(
         replacement_mode=replacement_mode,
         driving_background=driving_background,
         reference_background=reference_background,
+        identity=identity,
     )
 
 

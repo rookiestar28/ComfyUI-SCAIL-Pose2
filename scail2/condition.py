@@ -15,6 +15,7 @@ from .masks import (
     semantic_mask_indices,
     semantic_mask_indices_tensor_raw,
 )
+from .identity import identity_count_from_semantic_mask
 from .wanvideo_contracts import UNSUPPORTED_CURRENT_WAN_SCAIL2_FEATURES
 
 
@@ -31,6 +32,31 @@ class AdditionalReference:
 
 
 @dataclass(frozen=True)
+class SCAIL2ConditionIdentityDiagnostics:
+    driving_identity_count: int
+    reference_identity_count: int
+    additional_reference_identity_counts: tuple[int, ...]
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def reference_slot_count(self) -> int:
+        base_slots = max(self.reference_identity_count, 1)
+        additional_slots = sum(max(count, 1) for count in self.additional_reference_identity_counts)
+        return base_slots + additional_slots
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "driving_identity_count": self.driving_identity_count,
+            "reference_identity_count": self.reference_identity_count,
+            "additional_reference_identity_counts": list(
+                self.additional_reference_identity_counts
+            ),
+            "reference_slot_count": self.reference_slot_count,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
 class SCAIL2Condition:
     type_name: str
     mode: SCAIL2Mode
@@ -43,6 +69,7 @@ class SCAIL2Condition:
     pose_video: Any
     driving_mask_indices: Any
     additional_references: tuple[AdditionalReference, ...]
+    identity: SCAIL2ConditionIdentityDiagnostics
     source_kind: str = "user_rgb_masks"
     mask_palette: tuple[str, ...] = SEMANTIC_MASK_COLOR_NAMES
     unsupported_wrapper_features: tuple[
@@ -295,6 +322,42 @@ def _normalize_additional_references(
     return tuple(additional)
 
 
+def _semantic_identity_count(value: Any) -> int:
+    try:
+        return int(identity_count_from_semantic_mask(value))
+    except (IndexError, TypeError, ValueError):
+        return 0
+
+
+def _build_identity_diagnostics(
+    *,
+    driving_mask_frames: Any,
+    ref_mask_frames: Any,
+    additional_ref_masks: Sequence[Any] | None,
+) -> SCAIL2ConditionIdentityDiagnostics:
+    driving_count = _semantic_identity_count(driving_mask_frames)
+    reference_count = _semantic_identity_count(ref_mask_frames)
+    additional_counts = tuple(
+        _semantic_identity_count(mask) for mask in tuple(additional_ref_masks or ())
+    )
+    warnings: list[str] = []
+    reference_slot_count = max(reference_count, 1) + sum(
+        max(count, 1) for count in additional_counts
+    )
+    if driving_count > 1 and reference_slot_count < driving_count:
+        warnings.append("multi_identity_reference_slots_under_provisioned")
+    if reference_count > driving_count > 0:
+        warnings.append("reference_identity_count_exceeds_driving")
+    if any(count > 1 for count in additional_counts):
+        warnings.append("additional_reference_mask_contains_multiple_identities")
+    return SCAIL2ConditionIdentityDiagnostics(
+        driving_identity_count=driving_count,
+        reference_identity_count=reference_count,
+        additional_reference_identity_counts=additional_counts,
+        warnings=tuple(dict.fromkeys(warnings)),
+    )
+
+
 def build_scail2_condition(
     *,
     mode: SCAIL2Mode,
@@ -317,6 +380,12 @@ def build_scail2_condition(
     source_kind_value = str(source_kind).strip()
     if not source_kind_value:
         raise ValueError("source_kind must not be empty")
+
+    identity = _build_identity_diagnostics(
+        driving_mask_frames=driving_mask_frames,
+        ref_mask_frames=ref_mask_frames,
+        additional_ref_masks=additional_ref_masks,
+    )
 
     ref_mask_indices = _normalize_mask_indices(
         ref_mask_frames,
@@ -370,5 +439,6 @@ def build_scail2_condition(
         pose_video=pose_video,
         driving_mask_indices=driving_mask_indices,
         additional_references=additional_references,
+        identity=identity,
         source_kind=source_kind_value,
     )

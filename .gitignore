@@ -24,6 +24,9 @@ ROADMAP.md
 roadmap*.md
 AGENTS.md
 
+# Local exported ComfyUI workflows
+/wanvideo_*.json
+
 # Secrets and local environment
 .env
 .env.*

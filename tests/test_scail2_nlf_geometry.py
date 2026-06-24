@@ -8,6 +8,7 @@ from scail2.nlf_geometry import (
     bbox_payload_is_safe_for_render_repair,
     format_nlf_render_bbox_diagnostics,
     normalize_nlf_bboxes,
+    select_nlf_bboxes_for_identity,
 )
 
 
@@ -61,6 +62,10 @@ class Scail2NLFGeometryTests(unittest.TestCase):
         )
 
         self.assertTrue(normalized.ambiguous)
+        self.assertEqual(2, normalized.max_person_count)
+        self.assertTrue(normalized.is_multi_person)
+        self.assertEqual((1.0, 1.0, 3.0, 3.0), normalized.candidates[0][0].to_tuple())
+        self.assertEqual((2.0, 2.0, 8.0, 8.0), normalized.candidates[0][1].to_tuple())
         self.assertIn("multi_person_bbox_payload", normalized.warnings)
         safe, reason = bbox_payload_is_safe_for_render_repair(
             normalized,
@@ -69,6 +74,23 @@ class Scail2NLFGeometryTests(unittest.TestCase):
         )
         self.assertFalse(safe)
         self.assertEqual("ambiguous_multi_person_bboxes", reason)
+
+    def test_selects_identity_bbox_stream_from_multi_person_payload(self) -> None:
+        normalized = normalize_nlf_bboxes(
+            [
+                [[1, 1, 3, 3], [4, 4, 7, 7]],
+                [[2, 2, 4, 4]],
+            ],
+            frame_count=2,
+        )
+
+        selected = select_nlf_bboxes_for_identity(normalized, identity_index=1)
+
+        self.assertFalse(selected.ambiguous)
+        self.assertEqual("list.identity_1", selected.source)
+        self.assertEqual((4.0, 4.0, 7.0, 7.0), selected.boxes[0].to_tuple())
+        self.assertIsNone(selected.boxes[1])
+        self.assertIn("identity_bbox_missing_frames", selected.warnings)
 
     def test_rejects_bbox_coordinate_space_mismatch_for_render_repair(self) -> None:
         normalized = normalize_nlf_bboxes([[10, 10, 30, 30]], frame_count=1)

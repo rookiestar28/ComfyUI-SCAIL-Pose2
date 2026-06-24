@@ -155,6 +155,15 @@ class WanVideoSCAIL2AdapterTests(unittest.TestCase):
             1,
             payload["schema"]["additional_references"]["count"],
         )
+        self.assertEqual(payload["schema"]["identity"], payload["identity"])
+        self.assertEqual(3, payload["identity"]["driving_identity_count"])
+        self.assertEqual(0, payload["identity"]["reference_identity_count"])
+        self.assertEqual([1], payload["identity"]["additional_reference_identity_counts"])
+        self.assertEqual(2, payload["identity"]["reference_slot_count"])
+        self.assertIn(
+            "multi_identity_reference_slots_under_provisioned",
+            payload["identity"]["warnings"],
+        )
         self.assertEqual(
             1,
             len(

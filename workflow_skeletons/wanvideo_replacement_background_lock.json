@@ -27,6 +27,8 @@
       "id": "colored_masks",
       "class_type": "SCAILPose2ColoredMask",
       "role": "sam3_track_colored_mask_creation",
+      "identity_palette": ["blue", "red", "green", "magenta", "cyan", "yellow"],
+      "identity_order_source": "selected_object_order_after_sort_and_object_indices_filter",
       "outputs": [
         { "name": "pose_video_mask", "type": "IMAGE" },
         { "name": "reference_image_mask", "type": "IMAGE" }
@@ -52,6 +54,11 @@
       "mode_video_sources": {
         "animation": "pose_video",
         "replacement": "driving_video"
+      },
+      "identity_diagnostics": {
+        "reported_in_condition": true,
+        "reported_in_adapter_payload_schema": true,
+        "under_provisioned_references": "warning_only"
       }
     },
     {
@@ -259,6 +266,12 @@
       "pose_latents_and_driving_masks_must_share_frame_count": true,
       "samples_and_noise_mask_must_share_latent_timeline": true
     }
+  },
+  "multi_person_identity_contract": {
+    "selected_objects_define_identity_order": true,
+    "identity_palette": ["blue", "red", "green", "magenta", "cyan", "yellow"],
+    "additional_reference_slots_supported": true,
+    "under_provisioned_references_are_warnings": true
   },
   "warnings": [
     "This static skeleton documents replacement background-lock wiring and does not execute generation.",

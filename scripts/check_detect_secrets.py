@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 EXCLUDE_FILES = (
+    r"(^wanvideo_[^\\/]*\.json$)|"
     r"(^|[\\/])("
     r"\.git|\.planning|\.sessions|reference|REFERENCE|\.reference|"
     r"\.venv|\.venv-wsl|\.venv-[^\\/]+|venv|ENV|"

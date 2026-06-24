@@ -5,6 +5,7 @@ __all__ = [
     "colored_masks",
     "generation_policy",
     "geometry",
+    "identity",
     "masks",
     "pose_alignment",
     "preprocessing",
