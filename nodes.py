@@ -283,6 +283,59 @@ def _nlf_frames_to_tensors(frames_np):
     return frames_tensor[..., :3].cpu().float(), (frames_tensor[..., -1] > 0.5).cpu().float()
 
 
+def _format_nlf_detected_boxes(all_boxes):
+    """Format detector xywh rows for the public BBOX output.
+
+    Keep the legacy flat bbox shape for single-person frames, but preserve all
+    candidates when the detector finds multiple people so RenderNLFPoses can
+    match NLF person slots to semantic mask identities.
+    """
+
+    formatted = []
+    for frame_boxes in all_boxes:
+        if hasattr(frame_boxes, "detach"):
+            frame_boxes = frame_boxes.detach()
+        if hasattr(frame_boxes, "cpu"):
+            frame_boxes = frame_boxes.cpu()
+        if hasattr(frame_boxes, "numel") and frame_boxes.numel() == 0:
+            formatted.append([0.0, 0.0, 0.0, 0.0])
+            continue
+        if hasattr(frame_boxes, "tolist"):
+            rows = frame_boxes.tolist()
+        else:
+            rows = frame_boxes
+        if not rows:
+            formatted.append([0.0, 0.0, 0.0, 0.0])
+            continue
+        if isinstance(rows[0], (bool, int, float)):
+            rows = [rows]
+        candidates = []
+        for row in rows:
+            if len(row) < 4:
+                continue
+            x, y, width, height = (float(row[index]) for index in range(4))
+            if width <= 0.0 or height <= 0.0:
+                continue
+            candidates.append([x, y, x + width, y + height])
+        if not candidates:
+            formatted.append([0.0, 0.0, 0.0, 0.0])
+        elif len(candidates) == 1:
+            formatted.append(candidates[0])
+        else:
+            formatted.append(candidates)
+    return formatted
+
+
+def _nlf_result_boxes_or_detector_boxes(result, detector_boxes):
+    result_boxes = result.get("boxes") if isinstance(result, dict) else None
+    if result_boxes is None:
+        return detector_boxes
+    # IMPORTANT: these boxes share the final filtering/order with poses3d.
+    # Falling back to first-pass detector boxes here can pair a pose with the
+    # wrong bbox and reintroduce RenderNLF scale/position drift.
+    return result_boxes
+
+
 def _load_vitpose_utils():
     from .vitpose_utils.utils import (
         aaposemeta_to_dwpose_scail,
@@ -300,6 +353,44 @@ def _get_torch_device():
 
 def _get_offload_device():
     return mm.unet_offload_device() if mm is not None else "cpu"
+
+
+def _resolve_taichi_render_device_key(render_device):
+    requested = str(render_device or "gpu").lower()
+    if requested == "gpu":
+        cuda = getattr(torch, "cuda", None) if torch is not None else None
+        if cuda is not None and cuda.is_available():
+            return "cuda"
+    return requested
+
+
+def _initialize_taichi_backend(render_device):
+    import taichi as ti
+
+    resolved_key = _resolve_taichi_render_device_key(render_device)
+    device_map = {
+        "cpu": ti.cpu,
+        "gpu": ti.gpu,
+        "opengl": ti.opengl,
+        "cuda": ti.cuda,
+        "vulkan": ti.vulkan,
+        "metal": ti.metal,
+    }
+    if resolved_key not in device_map:
+        raise ValueError(f"Unsupported Taichi render device: {render_device!r}")
+    ti.init(arch=device_map[resolved_key])
+    try:
+        active_arch = ti.lang.impl.current_cfg().arch
+    except Exception:
+        active_arch = "unknown"
+    logging.info(
+        "Render NLF Poses Taichi backend initialized: requested=%s "
+        "resolved=%s active_arch=%s",
+        render_device,
+        resolved_key,
+        active_arch,
+    )
+    return resolved_key, active_arch
 
 
 device = _get_torch_device()
@@ -578,23 +669,37 @@ class RenderNLFPoses:
         _require_dependency("numpy", np)
         _require_dependency("torch", torch)
 
-        from .NLFPoseExtract.nlf_render import render_nlf_as_images, render_multi_nlf_as_images, shift_dwpose_according_to_nlf, process_data_to_COCO_format, intrinsic_matrix_from_field_of_view
+        from .NLFPoseExtract import nlf_render as nlf_render_module
         from .NLFPoseExtract.align3d import solve_new_camera_params_central, solve_new_camera_params_down
+        render_nlf_as_images = nlf_render_module.render_nlf_as_images
+        render_multi_nlf_as_images = nlf_render_module.render_multi_nlf_as_images
+        shift_dwpose_according_to_nlf = nlf_render_module.shift_dwpose_according_to_nlf
+        process_data_to_COCO_format = nlf_render_module.process_data_to_COCO_format
+        intrinsic_matrix_from_field_of_view = nlf_render_module.intrinsic_matrix_from_field_of_view
         if render_backend == "taichi":
-            try:
-                import taichi as ti
-                device_map = {
-                    "cpu": ti.cpu,
-                    "gpu": ti.gpu,
-                    "opengl": ti.opengl,
-                    "cuda": ti.cuda,
-                    "vulkan": ti.vulkan,
-                    "metal": ti.metal,
-                }
-                ti.init(arch=device_map.get(render_device.lower()))
-            except:
-                logging.warning("Taichi selected but not installed. Falling back to torch rendering.")
+            if getattr(nlf_render_module, "render_whole_taichi", None) is None:
+                logging.warning(
+                    "Render NLF Poses Taichi renderer is unavailable; "
+                    "falling back to torch rendering."
+                )
                 render_backend = "torch"
+            else:
+                try:
+                    _initialize_taichi_backend(render_device)
+                except Exception as exc:
+                    logging.warning(
+                        "Render NLF Poses Taichi init failed for "
+                        "render_device=%s; falling back to torch rendering. "
+                        "error=%s",
+                        render_device,
+                        exc,
+                    )
+                    render_backend = "torch"
+        logging.info(
+            "Render NLF Poses render backend selected: backend=%s device=%s",
+            render_backend,
+            render_device,
+        )
 
         if isinstance(nlf_poses, dict):
             pose_input = nlf_poses['joints3d_nonparam'][0] if 'joints3d_nonparam' in nlf_poses else nlf_poses
@@ -679,6 +784,14 @@ class RenderNLFPoses:
             if pose_video_mask is not None
             else 0
         )
+        logging.info(
+            "Render NLF Poses geometry inputs: pose_persons=%s "
+            "semantic_identities=%s bbox_max_persons=%s bbox_valid=%s",
+            pose_person_count,
+            semantic_identity_count,
+            normalized_bboxes.max_person_count,
+            normalized_bboxes.valid_count,
+        )
         used_identity_composition = False
         frames_tensor = None
         mask = None
@@ -687,6 +800,13 @@ class RenderNLFPoses:
             and semantic_identity_count > 0
             and pose_person_count > 1
         ):
+            if normalized_bboxes.max_person_count <= 1:
+                logging.warning(
+                    "Render NLF Poses identity matching has no multi-person "
+                    "bbox candidates; falling back to NLF/SAM index order. "
+                    "Connect NLFPredictPoses.bboxes to RenderNLFPoses.bboxes "
+                    "and restart after updating the node pack."
+                )
             rendered_identity_tensors = []
             used_person_indices = []
             for identity_index in range(min(semantic_identity_count, pose_person_count)):
@@ -999,31 +1119,30 @@ class NLFPredictPoses:
         # Phase 2: Estimate poses per frame
         mm.load_model_gpu(nlf_model.model_patcher)
         all_joints3d = []
+        all_result_boxes = []
         pbar_nlf = ProgressBar(num_images)
         for i in tqdm(range(0, num_images, batch_size), desc="Estimating poses"):
             end_idx = min(i + batch_size, num_images)
+            detector_batch_boxes = all_boxes[i:end_idx]
 
             result = nlf_model.detect_and_estimate(
-                images_nchw[i:end_idx].to(device), num_aug=num_aug, boxes=all_boxes[i:end_idx],
+                images_nchw[i:end_idx].to(device), num_aug=num_aug, boxes=detector_batch_boxes,
             )
 
             all_joints3d.extend(result['poses3d'])
+            all_result_boxes.extend(
+                _nlf_result_boxes_or_detector_boxes(result, detector_batch_boxes)
+            )
             pbar_nlf.update(end_idx - i)
 
-        all_boxes = [b.to(offload_device) for b in all_boxes]
+        all_result_boxes = [b.to(offload_device) for b in all_result_boxes]
         all_joints3d = [j.to(offload_device) for j in all_joints3d]
 
         pose_results = {
             'joints3d_nonparam': [all_joints3d],
         }
 
-        formatted_boxes = []
-        for box in all_boxes:
-            if box.numel() == 0 or box.shape[0] == 0:
-                formatted_boxes.append([0.0, 0.0, 0.0, 0.0])
-            else:
-                x, y, w, h = box[0, :4].cpu().tolist()
-                formatted_boxes.append([x, y, x + w, y + h])
+        formatted_boxes = _format_nlf_detected_boxes(all_result_boxes)
 
         return (pose_results, formatted_boxes)
 

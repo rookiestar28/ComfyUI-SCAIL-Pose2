@@ -66,6 +66,68 @@ class V1PosePipelineTests(unittest.TestCase):
         self.assertEqual(("IMAGE", "MASK"), render_node.RETURN_TYPES)
         self.assertEqual(("image", "mask"), render_node.RETURN_NAMES)
 
+    def test_nlf_predict_bbox_formatter_preserves_multi_person_candidates(self) -> None:
+        import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+
+        formatted = nodes_module._format_nlf_detected_boxes(
+            [
+                [[1, 2, 3, 4], [10, 20, 5, 6]],
+                [[7, 8, 1, 2]],
+                [],
+            ]
+        )
+
+        self.assertEqual(
+            [[1.0, 2.0, 4.0, 6.0], [10.0, 20.0, 15.0, 26.0]],
+            formatted[0],
+        )
+        self.assertEqual([7.0, 8.0, 8.0, 10.0], formatted[1])
+        self.assertEqual([0.0, 0.0, 0.0, 0.0], formatted[2])
+
+    def test_nlf_predict_prefers_filtered_result_boxes_over_detector_boxes(self) -> None:
+        import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        detector_boxes = [[[1, 2, 3, 4, 0.9], [10, 20, 5, 6, 0.8]]]
+        result_boxes = [[[10, 20, 5, 6, 0.8]]]
+
+        selected = nodes_module._nlf_result_boxes_or_detector_boxes(
+            {"boxes": result_boxes},
+            detector_boxes,
+        )
+
+        self.assertIs(result_boxes, selected)
+
+    def test_nlf_predict_falls_back_to_detector_boxes_for_legacy_results(self) -> None:
+        import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        detector_boxes = [[[1, 2, 3, 4, 0.9]]]
+
+        selected = nodes_module._nlf_result_boxes_or_detector_boxes(
+            {"poses3d": []},
+            detector_boxes,
+        )
+
+        self.assertIs(detector_boxes, selected)
+
+    def test_render_device_gpu_prefers_cuda_when_available(self) -> None:
+        import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        expected = (
+            "cuda"
+            if nodes_module.torch is not None and nodes_module.torch.cuda.is_available()
+            else "gpu"
+        )
+
+        self.assertEqual(
+            expected,
+            nodes_module._resolve_taichi_render_device_key("gpu"),
+        )
+        self.assertEqual(
+            "cuda",
+            nodes_module._resolve_taichi_render_device_key("cuda"),
+        )
+
     def test_render_nlf_poses_exposes_half_output_render_dimensions(self) -> None:
         package = import_root_package()
         render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]

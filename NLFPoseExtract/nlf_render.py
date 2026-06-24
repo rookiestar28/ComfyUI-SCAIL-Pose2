@@ -5,7 +5,8 @@ import logging
 
 try:
     from ..render_3d.taichi_cylinder import render_whole as render_whole_taichi
-except:
+except Exception as exc:
+    logging.warning("NLF Taichi renderer unavailable: %s", exc)
     render_whole_taichi = None
 
 from ..render_3d.render_torch import render_whole as render_whole_torch

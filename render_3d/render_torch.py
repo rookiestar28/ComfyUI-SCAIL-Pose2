@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import random
 import math
+import logging
 
 
 def flatten_specs(specs_list):
@@ -53,6 +54,15 @@ def render_whole(
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(device)
+    logging.info(
+        "Render NLF torch renderer start: device=%s frames=%s size=%sx%s",
+        device,
+        len(specs_list),
+        W,
+        H,
+    )
 
     starts_np, ends_np, colors_np, frame_offset_np, frame_count_np = flatten_specs(
         specs_list
