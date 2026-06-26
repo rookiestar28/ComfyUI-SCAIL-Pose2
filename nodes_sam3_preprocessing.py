@@ -116,7 +116,9 @@ class SCAILPose2ColoredMask:
             "Colored Mask done: "
             f"pose={safe_value_summary(pose_mask)} "
             f"reference={safe_value_summary(reference_mask)} "
-            f"objects={len(result.object_order)} elapsed_ms={elapsed_ms(started_ms):.2f}"
+            f"objects={len(result.object_order)} "
+            f"{result.coverage.summary()} "
+            f"elapsed_ms={elapsed_ms(started_ms):.2f}"
         )
         return (
             pose_mask,

@@ -26,6 +26,52 @@ SCAIL2_IDENTITY_PALETTE_FLOAT: tuple[tuple[float, float, float], ...] = (
     CYAN_RGB_FLOAT,
     YELLOW_RGB_FLOAT,
 )
+SPARSE_SUBJECT_RATIO_THRESHOLD = 0.02
+
+
+@dataclass(frozen=True)
+class ColoredMaskCoverageDiagnostics:
+    selected_object_count: int
+    frame_count: int
+    canvas_height: int
+    canvas_width: int
+    subject_ratio_min: float
+    subject_ratio_mean: float
+    subject_ratio_max: float
+    empty_frame_count: int
+    sparse_frame_count: int
+    longest_sparse_streak: int
+    sparse_ratio_threshold: float = SPARSE_SUBJECT_RATIO_THRESHOLD
+
+    @classmethod
+    def empty(cls) -> "ColoredMaskCoverageDiagnostics":
+        return cls(
+            selected_object_count=0,
+            frame_count=0,
+            canvas_height=0,
+            canvas_width=0,
+            subject_ratio_min=0.0,
+            subject_ratio_mean=0.0,
+            subject_ratio_max=0.0,
+            empty_frame_count=0,
+            sparse_frame_count=0,
+            longest_sparse_streak=0,
+        )
+
+    def summary(self) -> str:
+        return (
+            "coverage "
+            f"frames={self.frame_count} "
+            f"selected_objects={self.selected_object_count} "
+            f"size={self.canvas_width}x{self.canvas_height} "
+            f"subject_ratio=min:{self.subject_ratio_min:.6f},"
+            f"mean:{self.subject_ratio_mean:.6f},"
+            f"max:{self.subject_ratio_max:.6f} "
+            f"empty_frames={self.empty_frame_count} "
+            f"sparse_frames={self.sparse_frame_count} "
+            f"longest_sparse_streak={self.longest_sparse_streak} "
+            f"sparse_threshold={self.sparse_ratio_threshold:.6f}"
+        )
 
 
 @dataclass(frozen=True)
@@ -58,6 +104,9 @@ class ColoredMaskRenderResult:
     reference_background: tuple[float, float, float]
     identity: IdentityContractDiagnostics = field(
         default_factory=lambda: IdentityContractDiagnostics(slots=())
+    )
+    coverage: ColoredMaskCoverageDiagnostics = field(
+        default_factory=ColoredMaskCoverageDiagnostics.empty
     )
 
 
@@ -514,6 +563,102 @@ def _filtered_order(order: tuple[int, ...], object_indices: str) -> tuple[int, .
     return tuple(order[index] for index in requested if 0 <= index < len(order))
 
 
+def _longest_true_streak(values: Sequence[bool]) -> int:
+    longest = 0
+    current = 0
+    for value in values:
+        if value:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
+def _coverage_from_ratios(
+    ratios: Sequence[float],
+    *,
+    selected_object_count: int,
+    frame_count: int,
+    height: int,
+    width: int,
+    sparse_ratio_threshold: float = SPARSE_SUBJECT_RATIO_THRESHOLD,
+) -> ColoredMaskCoverageDiagnostics:
+    if not ratios:
+        ratios = (0.0,) * max(frame_count, 0)
+    empty = tuple(ratio <= 0.0 for ratio in ratios)
+    sparse = tuple(ratio < sparse_ratio_threshold for ratio in ratios)
+    return ColoredMaskCoverageDiagnostics(
+        selected_object_count=selected_object_count,
+        frame_count=frame_count,
+        canvas_height=height,
+        canvas_width=width,
+        subject_ratio_min=min(ratios) if ratios else 0.0,
+        subject_ratio_mean=sum(ratios) / len(ratios) if ratios else 0.0,
+        subject_ratio_max=max(ratios) if ratios else 0.0,
+        empty_frame_count=sum(1 for value in empty if value),
+        sparse_frame_count=sum(1 for value in sparse if value),
+        longest_sparse_streak=_longest_true_streak(sparse),
+        sparse_ratio_threshold=sparse_ratio_threshold,
+    )
+
+
+def _coverage_diagnostics(
+    masks: NormalizedTrackMasks,
+    *,
+    order: Sequence[int],
+) -> ColoredMaskCoverageDiagnostics:
+    total_pixels = max(masks.height * masks.width, 1)
+    valid_order = tuple(index for index in order if 0 <= index < masks.object_count)
+    ratios = []
+    for frame in masks.frames:
+        active_count = 0
+        if valid_order:
+            for row_index in range(masks.height):
+                for col_index in range(masks.width):
+                    if any(frame[index][row_index][col_index] for index in valid_order):
+                        active_count += 1
+        ratios.append(active_count / total_pixels)
+    return _coverage_from_ratios(
+        ratios,
+        selected_object_count=len(valid_order),
+        frame_count=masks.frame_count,
+        height=masks.height,
+        width=masks.width,
+    )
+
+
+def _coverage_diagnostics_tensor(
+    masks: TensorTrackMasks,
+    *,
+    order: Sequence[int],
+) -> ColoredMaskCoverageDiagnostics:
+    torch = _torch_or_none()
+    if torch is None:  # pragma: no cover - tensor path requires torch
+        raise RuntimeError("torch is required for tensor SAM3 masks")
+
+    valid_order = tuple(index for index in order if 0 <= index < masks.object_count)
+    if valid_order:
+        selected = masks.frames[:, list(valid_order), :, :]
+        active = selected.any(dim=1)
+    else:
+        active = torch.zeros(
+            (masks.frame_count, masks.height, masks.width),
+            dtype=torch.bool,
+            device=masks.frames.device,
+        )
+    total_pixels = max(masks.height * masks.width, 1)
+    ratios_t = active.flatten(1).sum(dim=1).to(dtype=torch.float32) / total_pixels
+    ratios = tuple(float(value) for value in ratios_t.detach().cpu().tolist())
+    return _coverage_from_ratios(
+        ratios,
+        selected_object_count=len(valid_order),
+        frame_count=masks.frame_count,
+        height=masks.height,
+        width=masks.width,
+    )
+
+
 def _bg_tensor(
     color: tuple[float, float, float],
     *,
@@ -795,6 +940,9 @@ def render_scail2_colored_mask_pair(
         if progress is not None:
             progress(f"object order sort_by={sort_by} selected={list(order)}")
             progress(identity.summary())
+        coverage = _coverage_diagnostics_tensor(tensor_driving, order=order)
+        if progress is not None:
+            progress(coverage.summary())
 
         driving_background = WHITE_RGB_FLOAT if replacement_mode else BLACK_RGB_FLOAT
         reference_background = BLACK_RGB_FLOAT if replacement_mode else WHITE_RGB_FLOAT
@@ -876,6 +1024,7 @@ def render_scail2_colored_mask_pair(
             driving_background=driving_background,
             reference_background=reference_background,
             identity=identity,
+            coverage=coverage,
         )
 
     driving = _normalize_track_data(driving_track_data)
@@ -895,6 +1044,9 @@ def render_scail2_colored_mask_pair(
     if progress is not None:
         progress(f"object order sort_by={sort_by} selected={list(order)}")
         progress(identity.summary())
+    coverage = _coverage_diagnostics(driving, order=order)
+    if progress is not None:
+        progress(coverage.summary())
 
     driving_background = WHITE_RGB_FLOAT if replacement_mode else BLACK_RGB_FLOAT
     reference_background = BLACK_RGB_FLOAT if replacement_mode else WHITE_RGB_FLOAT
@@ -954,6 +1106,7 @@ def render_scail2_colored_mask_pair(
         driving_background=driving_background,
         reference_background=reference_background,
         identity=identity,
+        coverage=coverage,
     )
 
 

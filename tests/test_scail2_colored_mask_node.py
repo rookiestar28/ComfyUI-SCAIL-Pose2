@@ -57,6 +57,14 @@ def pixel(image, frame=0, row=0, col=0):
     return tuple(image[frame][row][col])
 
 
+def object_mask(height: int, width: int, active_pixels):
+    active = set(active_pixels)
+    return [
+        [((row, col) in active) for col in range(width)]
+        for row in range(height)
+    ]
+
+
 class FakeTensorLike:
     shape = (5, 8, 8, 3)
     dtype = "float16"
@@ -155,6 +163,47 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         self.assertIn("render driving frame 1/3", combined)
         self.assertIn("render driving frame 3/3", combined)
         self.assertIn("render complete", combined)
+
+    def test_colored_mask_reports_coverage_diagnostics_for_sparse_frames(self) -> None:
+        messages = []
+        dense_half_frame = {
+            (row, col)
+            for row in range(5)
+            for col in range(10)
+        }
+
+        result = render_scail2_colored_mask_pair(
+            track_data(
+                [
+                    [object_mask(10, 10, {(0, 0)})],
+                    [object_mask(10, 10, set())],
+                    [object_mask(10, 10, dense_half_frame)],
+                ]
+            ),
+            object_indices="",
+            sort_by="none",
+            replacement_mode=False,
+            progress=messages.append,
+        )
+
+        self.assertEqual(1, result.coverage.selected_object_count)
+        self.assertEqual(3, result.coverage.frame_count)
+        self.assertEqual(10, result.coverage.canvas_height)
+        self.assertEqual(10, result.coverage.canvas_width)
+        self.assertAlmostEqual(0.0, result.coverage.subject_ratio_min)
+        self.assertAlmostEqual((0.01 + 0.0 + 0.5) / 3.0, result.coverage.subject_ratio_mean)
+        self.assertAlmostEqual(0.5, result.coverage.subject_ratio_max)
+        self.assertEqual(1, result.coverage.empty_frame_count)
+        self.assertEqual(2, result.coverage.sparse_frame_count)
+        self.assertEqual(2, result.coverage.longest_sparse_streak)
+        self.assertEqual(BLUE_RGB_FLOAT, pixel(result.pose_video_mask, frame=0, row=0, col=0))
+        self.assertEqual(BLACK_RGB_FLOAT, pixel(result.pose_video_mask, frame=1, row=0, col=0))
+        summary = result.coverage.summary()
+        self.assertIn("coverage", summary)
+        self.assertIn("selected_objects=1", summary)
+        self.assertNotIn("data", summary)
+        self.assertNotIn("tensor", summary.lower())
+        self.assertIn("coverage", "\n".join(messages))
 
     def test_materialize_preserves_tensor_like_image_without_list_roundtrip(self) -> None:
         tensor = FakeTensorLike()
@@ -389,8 +438,14 @@ class Scail2ColoredMaskNodeTests(unittest.TestCase):
         self.assertEqual((), result.object_order)
         self.assertTrue(torch.equal(result.pose_video_mask[1, 0, 1], torch.tensor(BLACK_RGB_FLOAT)))
         self.assertTrue(torch.equal(result.reference_image_mask[0, 0, 1], torch.tensor(WHITE_RGB_FLOAT)))
+        self.assertEqual(0, result.coverage.selected_object_count)
+        self.assertEqual(2, result.coverage.frame_count)
+        self.assertEqual(2, result.coverage.empty_frame_count)
+        self.assertEqual(2, result.coverage.sparse_frame_count)
+        self.assertEqual(2, result.coverage.longest_sparse_streak)
         combined = "\n".join(messages)
         self.assertIn("render driving frame 1/2 objects=0", combined)
+        self.assertIn("coverage", combined)
         self.assertIn("render complete", combined)
 
     def test_missing_reference_inputs_render_solid_reference_mask(self) -> None:
