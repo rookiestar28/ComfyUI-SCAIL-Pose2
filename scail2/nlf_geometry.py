@@ -405,7 +405,28 @@ def _bbox_area_ratio(a: BoundingBox, b: BoundingBox) -> float | None:
     return ratio if ratio >= 1.0 else 1.0 / ratio
 
 
-def _mask_target_conflicts_with_bboxes(
+def _bbox_overlap_width(a: BoundingBox, b: BoundingBox) -> float:
+    return max(0.0, min(a.x_max, b.x_max) - max(a.x_min, b.x_min))
+
+
+def _bbox_overlap_height(a: BoundingBox, b: BoundingBox) -> float:
+    return max(0.0, min(a.y_max, b.y_max) - max(a.y_min, b.y_min))
+
+
+def _bbox_reference_coverage(
+    target: BoundingBox,
+    reference: BoundingBox,
+) -> tuple[float, float]:
+    if reference.area <= 0.0 or reference.height <= 0.0:
+        return 0.0, 0.0
+    overlap_width = _bbox_overlap_width(target, reference)
+    overlap_height = _bbox_overlap_height(target, reference)
+    area_coverage = (overlap_width * overlap_height) / reference.area
+    height_coverage = overlap_height / reference.height
+    return area_coverage, height_coverage
+
+
+def _mask_target_conflict_reason(
     alignment: PoseMaskAlignmentResult,
     normalized_bboxes: NormalizedNLFBBoxes,
     *,
@@ -413,7 +434,9 @@ def _mask_target_conflicts_with_bboxes(
     height: int,
     max_center_delta_ratio: float,
     max_area_ratio: float,
-) -> bool:
+    min_bbox_area_coverage_ratio: float,
+    min_bbox_height_coverage_ratio: float,
+) -> str | None:
     for transform, bbox in zip(alignment.alignment_transforms, normalized_bboxes.boxes):
         if transform.target_bbox is None or bbox is None:
             continue
@@ -426,11 +449,22 @@ def _mask_target_conflicts_with_bboxes(
             )
             > max_center_delta_ratio
         ):
-            return True
+            return "mask_bbox_target_mismatch"
         area_ratio = _bbox_area_ratio(transform.target_bbox, bbox)
         if area_ratio is not None and area_ratio > max_area_ratio:
-            return True
-    return False
+            return "mask_bbox_target_mismatch"
+        area_coverage, height_coverage = _bbox_reference_coverage(
+            transform.target_bbox,
+            bbox,
+        )
+        # IMPORTANT: center/area tolerances miss upper-body-only masks against
+        # full-body bboxes; this guard prevents Render NLF pose compression.
+        if (
+            area_coverage < min_bbox_area_coverage_ratio
+            or height_coverage < min_bbox_height_coverage_ratio
+        ):
+            return "mask_bbox_coverage_mismatch"
+    return None
 
 
 def pose_mask_alignment_is_safe_for_render_repair(
@@ -442,6 +476,8 @@ def pose_mask_alignment_is_safe_for_render_repair(
     height: int,
     max_center_delta_ratio: float = 0.25,
     max_area_ratio: float = 4.0,
+    min_bbox_area_coverage_ratio: float = 0.60,
+    min_bbox_height_coverage_ratio: float = 0.65,
 ) -> tuple[bool, str]:
     """Return whether mask-first repair is safe enough to suppress bbox repair."""
 
@@ -458,15 +494,19 @@ def pose_mask_alignment_is_safe_for_render_repair(
             width=width,
             height=height,
         )
-        if bbox_safe and _mask_target_conflicts_with_bboxes(
-            alignment,
-            normalized_bboxes,
-            width=width,
-            height=height,
-            max_center_delta_ratio=max_center_delta_ratio,
-            max_area_ratio=max_area_ratio,
-        ):
-            return False, "mask_bbox_target_mismatch"
+        if bbox_safe:
+            conflict_reason = _mask_target_conflict_reason(
+                alignment,
+                normalized_bboxes,
+                width=width,
+                height=height,
+                max_center_delta_ratio=max_center_delta_ratio,
+                max_area_ratio=max_area_ratio,
+                min_bbox_area_coverage_ratio=min_bbox_area_coverage_ratio,
+                min_bbox_height_coverage_ratio=min_bbox_height_coverage_ratio,
+            )
+            if conflict_reason is not None:
+                return False, conflict_reason
 
     return True, "ok"
 

@@ -241,6 +241,25 @@ class Scail2NLFGeometryTests(unittest.TestCase):
         self.assertTrue(safe)
         self.assertEqual("ok", reason)
 
+    def test_mask_alignment_arbitration_rejects_partial_mask_when_bbox_is_full_body(self) -> None:
+        pose = image_frame(8, 8)
+        mask = image_frame(8, 8)
+        paint_rect(pose, x0=2, y0=0, x1=6, y1=8, color=BLUE)
+        paint_rect(mask, x0=2, y0=0, x1=6, y1=4, color=BLUE)
+        alignment = align_pose_video_to_mask(pose_video=[pose], pose_video_mask=[mask])
+        normalized = normalize_nlf_bboxes([[2, 0, 6, 8]], frame_count=1)
+
+        safe, reason = pose_mask_alignment_is_safe_for_render_repair(
+            alignment,
+            normalized_bboxes=normalized,
+            bboxes_connected=True,
+            width=8,
+            height=8,
+        )
+
+        self.assertFalse(safe)
+        self.assertEqual("mask_bbox_coverage_mismatch", reason)
+
     def test_mask_alignment_arbitration_rejects_empty_mask(self) -> None:
         pose = image_frame(8, 8)
         mask = image_frame(8, 8)
