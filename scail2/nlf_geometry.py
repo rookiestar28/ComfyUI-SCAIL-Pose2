@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,6 +43,17 @@ class NormalizedNLFBBoxes:
             f"ambiguous={self.ambiguous} "
             f"warnings={warning_text}"
         )
+
+
+@dataclass(frozen=True)
+class RefDWPoseCameraSolveValidation:
+    safe: bool
+    reason: str
+    summary: str
+    valid_point_count: int
+    mean_reprojection_error_px: float | None
+    max_reprojection_error_px: float | None
+    projected_bbox_coverage: float | None
 
 
 def _torch_or_none() -> Any | None:
@@ -265,6 +277,10 @@ def _format_optional_bool(value: bool | None) -> str:
     return "none" if value is None else str(value)
 
 
+def _is_finite_number(value: Any) -> bool:
+    return _is_number(value) and math.isfinite(float(value))
+
+
 def _format_size(size: tuple[int, int] | None) -> str:
     if size is None:
         return "none"
@@ -453,6 +469,248 @@ def pose_mask_alignment_is_safe_for_render_repair(
             return False, "mask_bbox_target_mismatch"
 
     return True, "ok"
+
+
+def _camera_matrix_or_none(value: Any) -> tuple[tuple[float, float, float], ...] | None:
+    raw = _as_list(value)
+    if not isinstance(raw, (list, tuple)) or len(raw) < 3:
+        return None
+    rows = []
+    for row in raw[:3]:
+        if not isinstance(row, (list, tuple)) or len(row) < 3:
+            return None
+        parsed = []
+        for item in row[:3]:
+            if not _is_finite_number(item):
+                return None
+            parsed.append(float(item))
+        rows.append(tuple(parsed))
+    return tuple(rows)
+
+
+def _valid_projection_pairs(
+    points_3d: Any,
+    target_points_2d: Any,
+) -> tuple[tuple[tuple[float, float, float], tuple[float, float]], ...]:
+    raw_3d = _as_list(points_3d)
+    raw_2d = _as_list(target_points_2d)
+    if not isinstance(raw_3d, (list, tuple)) or not isinstance(raw_2d, (list, tuple)):
+        return ()
+    pairs = []
+    for point_3d, point_2d in zip(raw_3d, raw_2d):
+        if (
+            not isinstance(point_3d, (list, tuple))
+            or len(point_3d) < 3
+            or not isinstance(point_2d, (list, tuple))
+            or len(point_2d) < 2
+        ):
+            continue
+        if not all(_is_finite_number(value) for value in (*point_3d[:3], *point_2d[:2])):
+            continue
+        x, y, z = (float(value) for value in point_3d[:3])
+        if abs(z) <= 1.0e-6:
+            continue
+        u, v = (float(value) for value in point_2d[:2])
+        pairs.append(((x, y, z), (u, v)))
+    return tuple(pairs)
+
+
+def _camera_solve_summary(
+    *,
+    solve_mode: str,
+    safe: bool,
+    reason: str,
+    valid_point_count: int,
+    scale_m: float | None,
+    scale_s: float | None,
+    principal_offset_x: float | None,
+    principal_offset_y: float | None,
+    principal_offset_x_ratio: float | None,
+    principal_offset_y_ratio: float | None,
+    mean_error: float | None,
+    max_error: float | None,
+    projected_bbox_coverage: float | None,
+) -> str:
+    return (
+        "ref_dwpose_camera_solve "
+        f"solve_mode={solve_mode} safe={safe} reason={reason} "
+        f"valid_points={valid_point_count} "
+        f"scale_m={_format_optional_float(scale_m)} "
+        f"scale_s={_format_optional_float(scale_s)} "
+        f"principal_offset_px={_format_optional_float(principal_offset_x)},"
+        f"{_format_optional_float(principal_offset_y)} "
+        f"principal_offset_ratio={_format_optional_float(principal_offset_x_ratio)},"
+        f"{_format_optional_float(principal_offset_y_ratio)} "
+        f"mean_reprojection_error_px={_format_optional_float(mean_error)} "
+        f"max_reprojection_error_px={_format_optional_float(max_error)} "
+        f"projected_bbox_coverage={_format_optional_float(projected_bbox_coverage)}"
+    )
+
+
+def _camera_solve_result(
+    *,
+    solve_mode: str,
+    safe: bool,
+    reason: str,
+    valid_point_count: int,
+    scale_m: float | None,
+    scale_s: float | None,
+    principal_offset_x: float | None,
+    principal_offset_y: float | None,
+    principal_offset_x_ratio: float | None,
+    principal_offset_y_ratio: float | None,
+    mean_error: float | None,
+    max_error: float | None,
+    projected_bbox_coverage: float | None,
+) -> RefDWPoseCameraSolveValidation:
+    return RefDWPoseCameraSolveValidation(
+        safe=safe,
+        reason=reason,
+        summary=_camera_solve_summary(
+            solve_mode=solve_mode,
+            safe=safe,
+            reason=reason,
+            valid_point_count=valid_point_count,
+            scale_m=scale_m,
+            scale_s=scale_s,
+            principal_offset_x=principal_offset_x,
+            principal_offset_y=principal_offset_y,
+            principal_offset_x_ratio=principal_offset_x_ratio,
+            principal_offset_y_ratio=principal_offset_y_ratio,
+            mean_error=mean_error,
+            max_error=max_error,
+            projected_bbox_coverage=projected_bbox_coverage,
+        ),
+        valid_point_count=valid_point_count,
+        mean_reprojection_error_px=mean_error,
+        max_reprojection_error_px=max_error,
+        projected_bbox_coverage=projected_bbox_coverage,
+    )
+
+
+def validate_ref_dwpose_camera_solve(
+    *,
+    camera_intrinsics: Any,
+    scale_m: Any,
+    scale_s: Any,
+    points_3d: Any,
+    target_points_2d: Any,
+    width: int,
+    height: int,
+    solve_mode: str,
+    min_valid_points: int = 4,
+    max_principal_shift_ratio: float = 0.75,
+    min_scale_m: float = 0.5,
+    max_scale_m: float = 1.6,
+    min_scale_s: float = 0.6,
+    max_scale_s: float = 1.5,
+    max_mean_reprojection_error_ratio: float = 0.15,
+    max_projected_bbox_coverage: float = 1.5,
+) -> RefDWPoseCameraSolveValidation:
+    """Validate whether a solved ref_dw_pose camera is safe to apply."""
+
+    width = int(width)
+    height = int(height)
+    scale_m_value = float(scale_m) if _is_finite_number(scale_m) else None
+    scale_s_value = float(scale_s) if _is_finite_number(scale_s) else None
+    matrix = _camera_matrix_or_none(camera_intrinsics)
+    pairs = _valid_projection_pairs(points_3d, target_points_2d)
+    if matrix is None:
+        return _camera_solve_result(
+            solve_mode=solve_mode,
+            safe=False,
+            reason="non_finite_intrinsics",
+            valid_point_count=len(pairs),
+            scale_m=scale_m_value,
+            scale_s=scale_s_value,
+            principal_offset_x=None,
+            principal_offset_y=None,
+            principal_offset_x_ratio=None,
+            principal_offset_y_ratio=None,
+            mean_error=None,
+            max_error=None,
+            projected_bbox_coverage=None,
+        )
+    if scale_m_value is None or scale_s_value is None:
+        reason = "non_finite_scale"
+    elif len(pairs) < int(min_valid_points):
+        reason = "insufficient_points"
+    elif not (float(min_scale_m) <= scale_m_value <= float(max_scale_m)):
+        reason = "excessive_scale"
+    elif not (float(min_scale_s) <= scale_s_value <= float(max_scale_s)):
+        reason = "excessive_aspect_scale"
+    else:
+        reason = "ok"
+
+    principal_offset_x = matrix[0][2] - width / 2.0
+    principal_offset_y = matrix[1][2] - height / 2.0
+    principal_offset_x_ratio = abs(principal_offset_x) / max(float(width), 1.0)
+    principal_offset_y_ratio = abs(principal_offset_y) / max(float(height), 1.0)
+    if reason == "ok" and max(principal_offset_x_ratio, principal_offset_y_ratio) > float(
+        max_principal_shift_ratio
+    ):
+        reason = "extreme_principal_shift"
+
+    projected = []
+    errors = []
+    if reason == "ok":
+        for point_3d, target in pairs:
+            x, y, z = point_3d
+            u = matrix[0][0] * x / z + matrix[0][2]
+            v = matrix[1][1] * y / z + matrix[1][2]
+            if not math.isfinite(u) or not math.isfinite(v):
+                reason = "non_finite_projection"
+                break
+            projected.append((u, v))
+            dx = u - target[0]
+            dy = v - target[1]
+            errors.append((dx * dx + dy * dy) ** 0.5)
+
+    mean_error = _mean(errors) if errors else None
+    max_error = max(errors) if errors else None
+    projected_bbox_coverage = None
+    if projected:
+        min_x = min(point[0] for point in projected)
+        max_x = max(point[0] for point in projected)
+        min_y = min(point[1] for point in projected)
+        max_y = max(point[1] for point in projected)
+        projected_area = max(max_x - min_x, 0.0) * max(max_y - min_y, 0.0)
+        projected_bbox_coverage = projected_area / max(float(width * height), 1.0)
+        tolerance_x = width * 0.25
+        tolerance_y = height * 0.25
+        if (
+            reason == "ok"
+            and (
+                min_x < -tolerance_x
+                or max_x > width + tolerance_x
+                or min_y < -tolerance_y
+                or max_y > height + tolerance_y
+                or projected_bbox_coverage > float(max_projected_bbox_coverage)
+            )
+        ):
+            reason = "off_canvas_projection"
+
+    residual_limit = ((width * width + height * height) ** 0.5) * float(
+        max_mean_reprojection_error_ratio
+    )
+    if reason == "ok" and mean_error is not None and mean_error > residual_limit:
+        reason = "high_reprojection_error"
+
+    return _camera_solve_result(
+        solve_mode=solve_mode,
+        safe=reason == "ok",
+        reason=reason,
+        valid_point_count=len(pairs),
+        scale_m=scale_m_value,
+        scale_s=scale_s_value,
+        principal_offset_x=principal_offset_x,
+        principal_offset_y=principal_offset_y,
+        principal_offset_x_ratio=principal_offset_x_ratio,
+        principal_offset_y_ratio=principal_offset_y_ratio,
+        mean_error=mean_error,
+        max_error=max_error,
+        projected_bbox_coverage=projected_bbox_coverage,
+    )
 
 
 def format_nlf_render_bbox_diagnostics(

@@ -107,6 +107,18 @@ class V1PosePipelineTests(unittest.TestCase):
         self.assertIn("mask_frame_count_mismatch", source)
         self.assertIn("and not used_identity_composition", source)
 
+    def test_render_nlf_poses_wires_ref_dwpose_camera_guardrail(self) -> None:
+        package = import_root_package()
+        render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]
+
+        source = inspect.getsource(render_node.predict)
+
+        self.assertIn("validate_ref_dwpose_camera_solve", source)
+        self.assertIn("camera_solve_validation.safe", source)
+        self.assertIn("ref_dw_pose camera solve rejected", source)
+        self.assertIn("intrinsic_matrix = ori_camera_pose", source)
+        self.assertIn("shift_dwpose_according_to_nlf", source)
+
     def test_nlf_predict_bbox_formatter_preserves_multi_person_candidates(self) -> None:
         import_root_package()
         nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]

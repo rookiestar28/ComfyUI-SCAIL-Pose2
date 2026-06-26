@@ -11,6 +11,7 @@ from scail2.nlf_geometry import (
     normalize_nlf_bboxes,
     pose_mask_alignment_is_safe_for_render_repair,
     select_nlf_bboxes_for_identity,
+    validate_ref_dwpose_camera_solve,
 )
 from scail2.pose_alignment import align_pose_video_to_mask
 
@@ -298,6 +299,131 @@ class Scail2NLFGeometryTests(unittest.TestCase):
 
         self.assertTrue(safe)
         self.assertEqual("ok", reason)
+
+    def test_camera_solve_validation_accepts_safe_projection(self) -> None:
+        points_3d = [
+            [0.0, 0.0, 10.0],
+            [0.1, 0.0, 10.0],
+            [0.0, 0.1, 10.0],
+            [0.1, 0.1, 10.0],
+        ]
+        target_2d = [
+            [4.0, 4.0],
+            [5.0, 4.0],
+            [4.0, 5.0],
+            [5.0, 5.0],
+        ]
+
+        result = validate_ref_dwpose_camera_solve(
+            camera_intrinsics=[
+                [100.0, 0.0, 4.0],
+                [0.0, 100.0, 4.0],
+                [0.0, 0.0, 1.0],
+            ],
+            scale_m=1.0,
+            scale_s=1.0,
+            points_3d=points_3d,
+            target_points_2d=target_2d,
+            width=8,
+            height=8,
+            solve_mode="central",
+        )
+
+        self.assertTrue(result.safe)
+        self.assertEqual("ok", result.reason)
+        self.assertIn("solve_mode=central", result.summary)
+        self.assertIn("valid_points=4", result.summary)
+        self.assertIn("mean_reprojection_error_px=0.000000", result.summary)
+
+    def test_camera_solve_validation_rejects_extreme_principal_shift(self) -> None:
+        result = validate_ref_dwpose_camera_solve(
+            camera_intrinsics=[
+                [100.0, 0.0, 20.0],
+                [0.0, 100.0, 4.0],
+                [0.0, 0.0, 1.0],
+            ],
+            scale_m=1.0,
+            scale_s=1.0,
+            points_3d=[[0.0, 0.0, 10.0], [0.1, 0.0, 10.0], [0.0, 0.1, 10.0], [0.1, 0.1, 10.0]],
+            target_points_2d=[[4.0, 4.0], [5.0, 4.0], [4.0, 5.0], [5.0, 5.0]],
+            width=8,
+            height=8,
+            solve_mode="central",
+        )
+
+        self.assertFalse(result.safe)
+        self.assertEqual("extreme_principal_shift", result.reason)
+
+    def test_camera_solve_validation_rejects_high_residual(self) -> None:
+        result = validate_ref_dwpose_camera_solve(
+            camera_intrinsics=[
+                [100.0, 0.0, 4.0],
+                [0.0, 100.0, 4.0],
+                [0.0, 0.0, 1.0],
+            ],
+            scale_m=1.0,
+            scale_s=1.0,
+            points_3d=[[0.0, 0.0, 10.0], [0.1, 0.0, 10.0], [0.0, 0.1, 10.0], [0.1, 0.1, 10.0]],
+            target_points_2d=[[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+            width=8,
+            height=8,
+            solve_mode="central",
+        )
+
+        self.assertFalse(result.safe)
+        self.assertEqual("high_reprojection_error", result.reason)
+
+    def test_camera_solve_validation_rejects_off_canvas_projection(self) -> None:
+        points_3d = [
+            [0.0, 0.0, 10.0],
+            [0.1, 0.0, 10.0],
+            [0.0, 0.1, 10.0],
+            [0.1, 0.1, 10.0],
+        ]
+        target_2d = [
+            [4.0, 4.0],
+            [14.0, 4.0],
+            [4.0, 14.0],
+            [14.0, 14.0],
+        ]
+
+        result = validate_ref_dwpose_camera_solve(
+            camera_intrinsics=[
+                [1000.0, 0.0, 4.0],
+                [0.0, 1000.0, 4.0],
+                [0.0, 0.0, 1.0],
+            ],
+            scale_m=1.0,
+            scale_s=1.0,
+            points_3d=points_3d,
+            target_points_2d=target_2d,
+            width=8,
+            height=8,
+            solve_mode="central",
+        )
+
+        self.assertFalse(result.safe)
+        self.assertEqual("off_canvas_projection", result.reason)
+
+
+    def test_camera_solve_validation_rejects_non_finite_intrinsics(self) -> None:
+        result = validate_ref_dwpose_camera_solve(
+            camera_intrinsics=[
+                [float("nan"), 0.0, 4.0],
+                [0.0, 100.0, 4.0],
+                [0.0, 0.0, 1.0],
+            ],
+            scale_m=1.0,
+            scale_s=1.0,
+            points_3d=[[0.0, 0.0, 10.0], [0.1, 0.0, 10.0], [0.0, 0.1, 10.0], [0.1, 0.1, 10.0]],
+            target_points_2d=[[4.0, 4.0], [5.0, 4.0], [4.0, 5.0], [5.0, 5.0]],
+            width=8,
+            height=8,
+            solve_mode="central",
+        )
+
+        self.assertFalse(result.safe)
+        self.assertEqual("non_finite_intrinsics", result.reason)
 
 
 if __name__ == "__main__":

@@ -87,6 +87,7 @@ from .scail2.nlf_geometry import (
     resize_bhwc_video,
     resize_mask_video,
     select_nlf_bboxes_for_identity,
+    validate_ref_dwpose_camera_solve,
 )
 from .scail2.geometry import frame_bboxes
 from .scail2.identity import (
@@ -914,16 +915,37 @@ class RenderNLFPoses:
             pose_3d_coco_first_driving_frame = pose_3d_coco_first_driving_frame[valid_indices]
 
             if len(valid_lower_indices) >= 4:
+                camera_solve_mode = "down"
                 new_camera_intrinsics, scale_m, scale_s = solve_new_camera_params_down(pose_3d_coco_first_driving_frame, ori_focal, [active_render_height, active_render_width], pose_2d_ref)
             else:
+                camera_solve_mode = "central"
                 new_camera_intrinsics, scale_m, scale_s = solve_new_camera_params_central(pose_3d_coco_first_driving_frame, ori_focal, [active_render_height, active_render_width], pose_2d_ref)
 
-            scale_face = scale_faces(list(dw_pose_input), list(ref_dw_pose_input))   # poses[0]['faces'].shape: 1, 68, 2  , poses_ref[0]['faces'].shape: 1, 68, 2
-
-            logging.info(f"Scale - m: {scale_m}, face: {scale_face}")
-            shift_dwpose_according_to_nlf(pose_input, dw_pose_input, ori_camera_pose, new_camera_intrinsics, active_render_height, active_render_width, swap_hands=swap_hands, scale_hands=scale_hands, scale_x=scale_m, scale_y=scale_m*scale_s)
-
-            intrinsic_matrix = new_camera_intrinsics
+            camera_solve_validation = validate_ref_dwpose_camera_solve(
+                camera_intrinsics=new_camera_intrinsics,
+                scale_m=scale_m,
+                scale_s=scale_s,
+                points_3d=pose_3d_coco_first_driving_frame,
+                target_points_2d=pose_2d_ref,
+                width=active_render_width,
+                height=active_render_height,
+                solve_mode=camera_solve_mode,
+            )
+            if camera_solve_validation.safe:
+                scale_face = scale_faces(list(dw_pose_input), list(ref_dw_pose_input))   # poses[0]['faces'].shape: 1, 68, 2  , poses_ref[0]['faces'].shape: 1, 68, 2
+                logging.info(
+                    "Render NLF Poses ref_dw_pose camera solve: %s face_scale=%s",
+                    camera_solve_validation.summary,
+                    scale_face,
+                )
+                shift_dwpose_according_to_nlf(pose_input, dw_pose_input, ori_camera_pose, new_camera_intrinsics, active_render_height, active_render_width, swap_hands=swap_hands, scale_hands=scale_hands, scale_x=scale_m, scale_y=scale_m*scale_s)
+                intrinsic_matrix = new_camera_intrinsics
+            else:
+                logging.warning(
+                    "Render NLF Poses ref_dw_pose camera solve rejected: %s",
+                    camera_solve_validation.summary,
+                )
+                intrinsic_matrix = ori_camera_pose
         else:
             intrinsic_matrix = ori_camera_pose
 
