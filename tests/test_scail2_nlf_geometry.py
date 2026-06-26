@@ -9,8 +9,10 @@ from scail2.nlf_geometry import (
     format_nlf_render_bbox_diagnostics,
     format_nlf_source_canvas_diagnostics,
     normalize_nlf_bboxes,
+    pose_mask_alignment_is_safe_for_render_repair,
     select_nlf_bboxes_for_identity,
 )
+from scail2.pose_alignment import align_pose_video_to_mask
 
 
 BLACK = (0.0, 0.0, 0.0)
@@ -218,6 +220,84 @@ class Scail2NLFGeometryTests(unittest.TestCase):
         self.assertIn("dwpose_bounds=x=0.100000..0.900000,y=0.200000..0.800000", summary)
         self.assertIn("dwpose_normalized=True", summary)
         self.assertIn("source_canvas_mismatch=False", summary)
+
+    def test_mask_alignment_arbitration_accepts_valid_mask(self) -> None:
+        pose = image_frame(8, 8)
+        mask = image_frame(8, 8)
+        paint_rect(pose, x0=0, y0=0, x1=2, y1=2, color=BLUE)
+        paint_rect(mask, x0=4, y0=4, x1=8, y1=8, color=BLUE)
+        alignment = align_pose_video_to_mask(pose_video=[pose], pose_video_mask=[mask])
+        normalized = normalize_nlf_bboxes([[4, 4, 8, 8]], frame_count=1)
+
+        safe, reason = pose_mask_alignment_is_safe_for_render_repair(
+            alignment,
+            normalized_bboxes=normalized,
+            bboxes_connected=True,
+            width=8,
+            height=8,
+        )
+
+        self.assertTrue(safe)
+        self.assertEqual("ok", reason)
+
+    def test_mask_alignment_arbitration_rejects_empty_mask(self) -> None:
+        pose = image_frame(8, 8)
+        mask = image_frame(8, 8)
+        paint_rect(pose, x0=0, y0=0, x1=2, y1=2, color=BLUE)
+        alignment = align_pose_video_to_mask(pose_video=[pose], pose_video_mask=[mask])
+        normalized = normalize_nlf_bboxes([[4, 4, 8, 8]], frame_count=1)
+
+        safe, reason = pose_mask_alignment_is_safe_for_render_repair(
+            alignment,
+            normalized_bboxes=normalized,
+            bboxes_connected=True,
+            width=8,
+            height=8,
+        )
+
+        self.assertFalse(safe)
+        self.assertEqual("mask_empty_mask", reason)
+
+    def test_mask_alignment_arbitration_rejects_bbox_target_conflict(self) -> None:
+        pose = image_frame(8, 8)
+        mask = image_frame(8, 8)
+        paint_rect(pose, x0=0, y0=0, x1=2, y1=2, color=BLUE)
+        paint_rect(mask, x0=6, y0=0, x1=8, y1=2, color=BLUE)
+        alignment = align_pose_video_to_mask(pose_video=[pose], pose_video_mask=[mask])
+        normalized = normalize_nlf_bboxes([[4, 4, 8, 8]], frame_count=1)
+
+        safe, reason = pose_mask_alignment_is_safe_for_render_repair(
+            alignment,
+            normalized_bboxes=normalized,
+            bboxes_connected=True,
+            width=8,
+            height=8,
+        )
+
+        self.assertFalse(safe)
+        self.assertEqual("mask_bbox_target_mismatch", reason)
+
+    def test_mask_alignment_arbitration_preserves_unsafe_bbox_guard(self) -> None:
+        pose = image_frame(8, 8)
+        mask = image_frame(8, 8)
+        paint_rect(pose, x0=0, y0=0, x1=2, y1=2, color=BLUE)
+        paint_rect(mask, x0=6, y0=0, x1=8, y1=2, color=BLUE)
+        alignment = align_pose_video_to_mask(pose_video=[pose], pose_video_mask=[mask])
+        normalized = normalize_nlf_bboxes(
+            [[[6, 0, 8, 2], [4, 4, 8, 8]]],
+            frame_count=1,
+        )
+
+        safe, reason = pose_mask_alignment_is_safe_for_render_repair(
+            alignment,
+            normalized_bboxes=normalized,
+            bboxes_connected=True,
+            width=8,
+            height=8,
+        )
+
+        self.assertTrue(safe)
+        self.assertEqual("ok", reason)
 
 
 if __name__ == "__main__":

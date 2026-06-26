@@ -83,6 +83,7 @@ from .scail2.nlf_geometry import (
     format_nlf_render_bbox_diagnostics,
     format_nlf_source_canvas_diagnostics,
     normalize_nlf_bboxes,
+    pose_mask_alignment_is_safe_for_render_repair,
     resize_bhwc_video,
     resize_mask_video,
     select_nlf_bboxes_for_identity,
@@ -1071,25 +1072,67 @@ class RenderNLFPoses:
                 )
             frames_tensor, mask = _nlf_frames_to_tensors(frames_np)
 
+        mask_alignment_applied = False
+        mask_alignment_skipped_reason = None
         if pose_video_mask is not None and not used_identity_composition:
-            alignment = align_pose_video_to_mask(
-                pose_video=frames_tensor,
-                pose_video_mask=pose_video_mask,
-            )
-            frames_tensor = alignment.pose_video.cpu().float()
-            mask = (frames_tensor[..., :3] > 0.001).any(dim=-1).float()
-            if alignment.alignment_transforms:
-                dwpose_alignment_transforms_by_person = _all_person_alignment_transforms(
-                    dw_pose_input,
-                    alignment.alignment_transforms,
+            try:
+                alignment = align_pose_video_to_mask(
+                    pose_video=frames_tensor,
+                    pose_video_mask=pose_video_mask,
                 )
-            logging.info("Render NLF Poses pose/mask alignment: %s", alignment.summary)
-        elif bboxes is not None:
+                mask_alignment_safe, mask_alignment_reason = (
+                    pose_mask_alignment_is_safe_for_render_repair(
+                        alignment,
+                        normalized_bboxes=normalized_bboxes,
+                        bboxes_connected=bboxes is not None,
+                        width=active_render_width,
+                        height=active_render_height,
+                    )
+                )
+            except ValueError as exc:
+                if "frame counts must match" in str(exc):
+                    mask_alignment_skipped_reason = "mask_frame_count_mismatch"
+                else:
+                    mask_alignment_skipped_reason = f"mask_alignment_error:{type(exc).__name__}"
+                logging.warning(
+                    "Render NLF Poses pose/mask alignment skipped: %s",
+                    mask_alignment_skipped_reason,
+                )
+            else:
+                if mask_alignment_safe:
+                    frames_tensor = alignment.pose_video.cpu().float()
+                    mask = (frames_tensor[..., :3] > 0.001).any(dim=-1).float()
+                    if alignment.alignment_transforms:
+                        dwpose_alignment_transforms_by_person = _all_person_alignment_transforms(
+                            dw_pose_input,
+                            alignment.alignment_transforms,
+                        )
+                    mask_alignment_applied = True
+                    logging.info("Render NLF Poses pose/mask alignment: %s", alignment.summary)
+                else:
+                    mask_alignment_skipped_reason = mask_alignment_reason
+                    logging.warning(
+                        "Render NLF Poses pose/mask alignment skipped: %s",
+                        mask_alignment_skipped_reason,
+                    )
+
+        if (
+            not mask_alignment_applied
+            and bboxes is not None
+            and not used_identity_composition
+        ):
             can_repair, reason = bbox_payload_is_safe_for_render_repair(
                 normalized_bboxes,
                 width=active_render_width,
                 height=active_render_height,
             )
+            fallback_reason = "none" if can_repair else reason
+            if mask_alignment_skipped_reason is not None:
+                fallback_reason = (
+                    f"{mask_alignment_skipped_reason}->bbox"
+                    if can_repair
+                    else f"{mask_alignment_skipped_reason};{reason}"
+                )
             logging.info(
                 "Render NLF Poses bbox geometry: %s",
                 format_nlf_render_bbox_diagnostics(
@@ -1098,7 +1141,7 @@ class RenderNLFPoses:
                     target_source="nlf_bboxes",
                     width=active_render_width,
                     height=active_render_height,
-                    fallback_reason="none" if can_repair else reason,
+                    fallback_reason=fallback_reason,
                 ),
             )
             if can_repair:

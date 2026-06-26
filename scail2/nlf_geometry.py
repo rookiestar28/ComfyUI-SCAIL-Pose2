@@ -369,6 +369,92 @@ def format_nlf_source_canvas_diagnostics(
     )
 
 
+def _bbox_center_delta_ratio(
+    a: BoundingBox,
+    b: BoundingBox,
+    *,
+    width: int,
+    height: int,
+) -> float:
+    dx = a.center_x - b.center_x
+    dy = a.center_y - b.center_y
+    diagonal = max((float(width * width + height * height)) ** 0.5, 1.0)
+    return ((dx * dx + dy * dy) ** 0.5) / diagonal
+
+
+def _bbox_area_ratio(a: BoundingBox, b: BoundingBox) -> float | None:
+    if a.area <= 0.0 or b.area <= 0.0:
+        return None
+    ratio = a.area / b.area
+    return ratio if ratio >= 1.0 else 1.0 / ratio
+
+
+def _mask_target_conflicts_with_bboxes(
+    alignment: PoseMaskAlignmentResult,
+    normalized_bboxes: NormalizedNLFBBoxes,
+    *,
+    width: int,
+    height: int,
+    max_center_delta_ratio: float,
+    max_area_ratio: float,
+) -> bool:
+    for transform, bbox in zip(alignment.alignment_transforms, normalized_bboxes.boxes):
+        if transform.target_bbox is None or bbox is None:
+            continue
+        if (
+            _bbox_center_delta_ratio(
+                transform.target_bbox,
+                bbox,
+                width=width,
+                height=height,
+            )
+            > max_center_delta_ratio
+        ):
+            return True
+        area_ratio = _bbox_area_ratio(transform.target_bbox, bbox)
+        if area_ratio is not None and area_ratio > max_area_ratio:
+            return True
+    return False
+
+
+def pose_mask_alignment_is_safe_for_render_repair(
+    alignment: PoseMaskAlignmentResult,
+    *,
+    normalized_bboxes: NormalizedNLFBBoxes,
+    bboxes_connected: bool,
+    width: int,
+    height: int,
+    max_center_delta_ratio: float = 0.25,
+    max_area_ratio: float = 4.0,
+) -> tuple[bool, str]:
+    """Return whether mask-first repair is safe enough to suppress bbox repair."""
+
+    if alignment.after.compared_frames <= 0:
+        return False, f"mask_{alignment.after.status}"
+    if alignment.after.missing_mask_frames > 0:
+        return False, "mask_missing_foreground"
+    if not any(transform.valid for transform in alignment.alignment_transforms):
+        return False, "mask_no_valid_transforms"
+
+    if bboxes_connected:
+        bbox_safe, _bbox_reason = bbox_payload_is_safe_for_render_repair(
+            normalized_bboxes,
+            width=width,
+            height=height,
+        )
+        if bbox_safe and _mask_target_conflicts_with_bboxes(
+            alignment,
+            normalized_bboxes,
+            width=width,
+            height=height,
+            max_center_delta_ratio=max_center_delta_ratio,
+            max_area_ratio=max_area_ratio,
+        ):
+            return False, "mask_bbox_target_mismatch"
+
+    return True, "ok"
+
+
 def format_nlf_render_bbox_diagnostics(
     *,
     pose_video: Any,

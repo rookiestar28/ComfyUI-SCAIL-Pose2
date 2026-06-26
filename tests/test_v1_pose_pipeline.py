@@ -95,6 +95,18 @@ class V1PosePipelineTests(unittest.TestCase):
         self.assertIn("output_width=output_width", source)
         self.assertIn("bboxes_connected=bboxes is not None", source)
 
+    def test_render_nlf_poses_wires_mask_bbox_arbitration_fallback(self) -> None:
+        package = import_root_package()
+        render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]
+
+        source = inspect.getsource(render_node.predict)
+
+        self.assertIn("pose_mask_alignment_is_safe_for_render_repair", source)
+        self.assertIn("mask_alignment_applied = False", source)
+        self.assertIn("not mask_alignment_applied", source)
+        self.assertIn("mask_frame_count_mismatch", source)
+        self.assertIn("and not used_identity_composition", source)
+
     def test_nlf_predict_bbox_formatter_preserves_multi_person_candidates(self) -> None:
         import_root_package()
         nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
