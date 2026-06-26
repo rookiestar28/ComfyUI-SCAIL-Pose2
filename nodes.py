@@ -1,9 +1,12 @@
 import copy
 import datetime
+import hashlib
 import logging
 import os
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
+_RENDER_NLF_GEOMETRY_CONTRACT_VERSION = "render_nlf_pose_geometry_v3"
+_RENDER_NLF_RUNTIME_PROVENANCE_CACHE = None
 
 try:
     import numpy as np
@@ -104,6 +107,28 @@ def _require_dependency(name, module):
             "Install the dependency in the active ComfyUI environment."
         )
     return module
+
+
+def _render_nlf_runtime_provenance():
+    global _RENDER_NLF_RUNTIME_PROVENANCE_CACHE
+    if _RENDER_NLF_RUNTIME_PROVENANCE_CACHE is not None:
+        return _RENDER_NLF_RUNTIME_PROVENANCE_CACHE
+    try:
+        with open(__file__, "rb") as handle:
+            nodes_hash = hashlib.sha256(handle.read()).hexdigest()[:12]
+    except OSError:
+        nodes_hash = "unavailable"
+    _RENDER_NLF_RUNTIME_PROVENANCE_CACHE = (
+        "scail_pose2_runtime "
+        "module_file=nodes.py "
+        f"nodes_sha256={nodes_hash} "
+        f"geometry_contract={_RENDER_NLF_GEOMETRY_CONTRACT_VERSION} "
+        "half_output=True "
+        "source_canvas_diagnostics=True "
+        "mask_bbox_arbitration=True "
+        "ref_camera_guardrails=True"
+    )
+    return _RENDER_NLF_RUNTIME_PROVENANCE_CACHE
 
 
 def _overlay_dwpose_2d_on_frames(
@@ -853,6 +878,10 @@ class RenderNLFPoses:
             "Render NLF Poses render backend selected: backend=%s device=%s",
             render_backend,
             render_device,
+        )
+        logging.info(
+            "Render NLF Poses runtime provenance: %s",
+            _render_nlf_runtime_provenance(),
         )
 
         if isinstance(nlf_poses, dict):

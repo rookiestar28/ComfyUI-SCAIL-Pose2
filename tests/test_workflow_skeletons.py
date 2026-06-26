@@ -10,10 +10,15 @@ from scail2 import wanvideo_contracts
 
 ROOT = Path(__file__).resolve().parents[1]
 SKELETON_DIR = ROOT / "workflow_skeletons"
+EXAMPLE_WORKFLOW = ROOT / "wanvideo_2_1_14B_SCAIL2_replacement_and_animate_dual_mode_example_01.json"
 
 
 def load_skeleton(name: str):
     return json.loads((SKELETON_DIR / name).read_text(encoding="utf-8"))
+
+
+def load_example_workflow():
+    return json.loads(EXAMPLE_WORKFLOW.read_text(encoding="utf-8"))
 
 
 class WorkflowSkeletonTests(unittest.TestCase):
@@ -71,12 +76,48 @@ class WorkflowSkeletonTests(unittest.TestCase):
             nlf_render["geometry_contract"]["render_width_height_policy"],
         )
         self.assertEqual(
-            "pose_video_mask alignment is preferred over bbox-only repair when connected",
+            "valid pose_video_mask alignment is preferred; invalid masks can fall back to bbox repair",
             nlf_render["geometry_contract"]["pose_video_mask_priority"],
         )
         self.assertIn(
             "semantic identity colors",
             nlf_render["geometry_contract"]["multi_person_identity_composition"],
+        )
+
+    def test_example_workflow_render_and_condition_dimensions_are_split(self) -> None:
+        workflow = load_example_workflow()
+        node_by_id = {int(node["id"]): node for node in workflow["nodes"]}
+        link_by_id = {int(link[0]): link for link in workflow["links"]}
+
+        def source_node_for_input(node, input_name: str):
+            input_spec = next(item for item in node["inputs"] if item["name"] == input_name)
+            link = link_by_id[int(input_spec["link"])]
+            return node_by_id[int(link[1])]
+
+        render = next(node for node in workflow["nodes"] if node["type"] == "RenderNLFPoses")
+        condition = next(
+            node for node in workflow["nodes"] if node["type"] == "SCAILPose2SCAIL2Condition"
+        )
+
+        self.assertEqual(
+            ["width"],
+            source_node_for_input(render, "render_width")["widgets_values"],
+        )
+        self.assertEqual(
+            ["height"],
+            source_node_for_input(render, "render_height")["widgets_values"],
+        )
+        self.assertEqual(
+            ["gen_width"],
+            source_node_for_input(condition, "width")["widgets_values"],
+        )
+        self.assertEqual(
+            ["gen_height"],
+            source_node_for_input(condition, "height")["widgets_values"],
+        )
+        self.assertEqual(
+            "SCAILPose2ColoredMask",
+            source_node_for_input(render, "pose_video_mask")["type"],
         )
 
     def test_scail2_condition_skeleton_lists_unsupported_wrapper_features(self) -> None:

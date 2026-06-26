@@ -20,7 +20,7 @@
       "geometry_contract": {
         "bboxes_source": "NLFPredictPoses.bboxes",
         "render_width_height_policy": "render on render_width/render_height and emit half-size IMAGE/MASK",
-        "pose_video_mask_priority": "pose_video_mask alignment is preferred over bbox-only repair when connected",
+        "pose_video_mask_priority": "valid pose_video_mask alignment is preferred; invalid masks can fall back to bbox repair",
         "multi_person_identity_composition": "semantic identity colors render and align each selected NLF person separately before compositing"
       },
       "outputs": {

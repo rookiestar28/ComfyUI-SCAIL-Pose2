@@ -84,6 +84,31 @@ class V1PosePipelineTests(unittest.TestCase):
         self.assertEqual(("IMAGE", "MASK"), render_node.RETURN_TYPES)
         self.assertEqual(("image", "mask"), render_node.RETURN_NAMES)
 
+    def test_render_nlf_runtime_provenance_is_public_safe(self) -> None:
+        import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+
+        provenance = nodes_module._render_nlf_runtime_provenance()
+
+        self.assertIn("module_file=nodes.py", provenance)
+        self.assertRegex(provenance, r"nodes_sha256=[0-9a-f]{12}")
+        self.assertIn("geometry_contract=render_nlf_pose_geometry_v3", provenance)
+        self.assertIn("half_output=True", provenance)
+        self.assertIn("source_canvas_diagnostics=True", provenance)
+        self.assertIn("mask_bbox_arbitration=True", provenance)
+        self.assertIn("ref_camera_guardrails=True", provenance)
+        self.assertNotIn(str(ROOT), provenance)
+        self.assertNotIn("\\", provenance)
+
+    def test_render_nlf_poses_wires_runtime_provenance_log(self) -> None:
+        package = import_root_package()
+        render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]
+
+        source = inspect.getsource(render_node.predict)
+
+        self.assertIn("Render NLF Poses runtime provenance", source)
+        self.assertIn("_render_nlf_runtime_provenance()", source)
+
     def test_render_nlf_poses_wires_source_canvas_diagnostics(self) -> None:
         package = import_root_package()
         render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]
