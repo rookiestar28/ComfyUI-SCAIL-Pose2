@@ -136,6 +136,8 @@ def _target_socket_links(links: Any) -> frozenset[tuple[str, str]]:
         if not isinstance(link, Mapping):
             continue
         target = link.get("to")
+        # IMPORTANT: support both this repo's skeleton links (`to`) and exported
+        # workflow-style target fields; dropping either weakens static checks.
         if (
             isinstance(target, Sequence)
             and not isinstance(target, (str, bytes))

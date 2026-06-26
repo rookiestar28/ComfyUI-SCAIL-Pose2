@@ -940,6 +940,8 @@ def render_scail2_colored_mask_pair(
         if progress is not None:
             progress(f"object order sort_by={sort_by} selected={list(order)}")
             progress(identity.summary())
+        # IMPORTANT: compute coverage from selected SAM3 objects before
+        # rendering; rendered backgrounds can hide undercovered identities.
         coverage = _coverage_diagnostics_tensor(tensor_driving, order=order)
         if progress is not None:
             progress(coverage.summary())
@@ -1044,6 +1046,8 @@ def render_scail2_colored_mask_pair(
     if progress is not None:
         progress(f"object order sort_by={sort_by} selected={list(order)}")
         progress(identity.summary())
+    # IMPORTANT: compute coverage from selected SAM3 objects before rendering;
+    # rendered backgrounds can hide undercovered identities.
     coverage = _coverage_diagnostics(driving, order=order)
     if progress is not None:
         progress(coverage.summary())

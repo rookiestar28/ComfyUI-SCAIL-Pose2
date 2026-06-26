@@ -276,6 +276,8 @@ def _coverage_stats_from_ratios(ratios: tuple[float, ...]) -> ReplacementCoverag
     raw_subject_ratio = sum(ratios) / len(ratios)
     empty = tuple(ratio <= 0.0 for ratio in ratios)
     sparse = tuple(ratio < LOW_SUBJECT_COVERAGE_RATIO for ratio in ratios)
+    # IMPORTANT: grow/blur can expand existing foreground only; missing subject
+    # regions stay preserved and can leak the driving person into replacement.
     warning = (
         "low_subject_coverage"
         if 0.0 < raw_subject_ratio < LOW_SUBJECT_COVERAGE_RATIO
@@ -634,6 +636,8 @@ def _replacement_summary(
         f"coverage_empty_frames={coverage_stats.empty_frame_count} "
         f"coverage_sparse_frames={coverage_stats.sparse_frame_count} "
         f"coverage_longest_sparse_streak={coverage_stats.longest_sparse_streak} "
+        # IMPORTANT: keep this explicit so logs do not imply mask grow/blur can
+        # recover subject regions that SAM3 never covered.
         f"coverage_limitation=missing_regions_not_recovered_by_grow_blur "
         f"mask_preset={mask_preset} "
         f"grow_pixels={grow_pixels} "
