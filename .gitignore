@@ -26,6 +26,7 @@ AGENTS.md
 
 # Local exported ComfyUI workflows
 /wanvideo_*.json
+/SCAIL*.json
 
 # Secrets and local environment
 .env
