@@ -51,6 +51,15 @@ def solid_frame(rgb, *, height, width):
     return [[rgb for _col in range(width)] for _row in range(height)]
 
 
+def single_pixel_subject_frames(*, frames=5, height=10, width=10):
+    pose_mask = []
+    for _frame in range(frames):
+        frame = solid_frame(BLACK, height=height, width=width)
+        frame[0][0] = BLUE
+        pose_mask.append(frame)
+    return pose_mask
+
+
 def replacement_condition(*, pose_mask, width=2, height=1, frames=5):
     return build_scail2_condition(
         mode="replacement",
@@ -89,6 +98,43 @@ class Scail2ReplacementMaskTests(unittest.TestCase):
             getattr(result.mask, SCAIL_POSE2_MASK_ROLE_ATTR, None),
         )
         self.assertIn("subject_ratio=0.500000", result.summary)
+        self.assertAlmostEqual(0.5, result.raw_subject_ratio)
+        self.assertEqual("none", result.coverage_warning)
+        self.assertIn("raw_subject_ratio=0.500000", result.summary)
+        self.assertIn("final_subject_ratio=0.500000", result.summary)
+
+    def test_low_coverage_subject_mask_reports_warning_without_blocking(self) -> None:
+        pose_mask = single_pixel_subject_frames()
+        condition = replacement_condition(
+            pose_mask=pose_mask,
+            width=10,
+            height=10,
+            frames=5,
+        )
+
+        result = build_replacement_denoise_mask(
+            condition=condition,
+            pose_video_mask=pose_mask,
+            mask_preset="custom",
+            grow_pixels=0,
+            blur_pixels=0,
+            lower_contact_refine=False,
+        )
+
+        self.assertEqual((5, 10, 10), tuple(result.mask.shape))
+        self.assertAlmostEqual(0.01, result.raw_subject_ratio)
+        self.assertAlmostEqual(0.01, result.subject_ratio)
+        self.assertEqual("low_subject_coverage", result.coverage_warning)
+        self.assertEqual(0, result.coverage_empty_frame_count)
+        self.assertEqual(5, result.coverage_sparse_frame_count)
+        self.assertEqual(5, result.coverage_longest_sparse_streak)
+        self.assertIn("raw_subject_ratio=0.010000", result.summary)
+        self.assertIn("final_subject_ratio=0.010000", result.summary)
+        self.assertIn("coverage_warning=low_subject_coverage", result.summary)
+        self.assertIn(
+            "coverage_limitation=missing_regions_not_recovered_by_grow_blur",
+            result.summary,
+        )
 
     def test_animation_condition_is_allowed_by_default(self) -> None:
         pose_mask = frames_from_pixels([BLUE, BLACK])

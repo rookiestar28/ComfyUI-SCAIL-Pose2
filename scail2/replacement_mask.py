@@ -31,6 +31,7 @@ SCAIL_POSE2_DISABLE_SAMPLES_REASON_ATTR = "scail_pose2_disable_samples_reason"
 SCAIL_POSE2_CONDITION_MODE_ATTR = "scail_pose2_condition_mode"
 SCAIL_POSE2_MASK_ROLE_ATTR = "scail_pose2_mask_role"
 SCAIL_POSE2_REPLACEMENT_DENOISE_MASK_ROLE = "replacement_denoise_mask"
+LOW_SUBJECT_COVERAGE_RATIO = 0.02
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,15 @@ class LowerContactRefineStats:
 
 
 @dataclass(frozen=True)
+class ReplacementCoverageStats:
+    raw_subject_ratio: float
+    coverage_warning: str
+    empty_frame_count: int
+    sparse_frame_count: int
+    longest_sparse_streak: int
+
+
+@dataclass(frozen=True)
 class ReplacementDenoiseMaskResult:
     mask: Any
     summary: str
@@ -61,6 +71,11 @@ class ReplacementDenoiseMaskResult:
     height: int
     width: int
     subject_ratio: float
+    raw_subject_ratio: float = 0.0
+    coverage_warning: str = "none"
+    coverage_empty_frame_count: int = 0
+    coverage_sparse_frame_count: int = 0
+    coverage_longest_sparse_streak: int = 0
     diagnostics: MaskDiagnostics | None = None
     mask_preset: str = "custom"
     fast_path: str = "semantic_indices"
@@ -225,6 +240,54 @@ def _off_threshold_for_rgb_chunk(torch: Any, rgb: Any) -> float:
 def _subject_mask_chunk_from_rgb(torch: Any, rgb: Any) -> Any:
     off_threshold = _off_threshold_for_rgb_chunk(torch, rgb)
     return (rgb > off_threshold).any(dim=-1).to(dtype=torch.float32)
+
+
+def _longest_true_streak(values: tuple[bool, ...]) -> int:
+    longest = 0
+    current = 0
+    for value in values:
+        if value:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
+def _frame_subject_ratios(mask: Any) -> tuple[float, ...]:
+    frame_count = int(mask.shape[0])
+    if frame_count <= 0:
+        return ()
+    total_pixels = max(int(mask.shape[1]) * int(mask.shape[2]), 1)
+    ratios = mask.detach().to(dtype=_torch_required().float32).reshape(frame_count, -1)
+    ratios = ratios.sum(dim=1) / total_pixels
+    return tuple(float(value) for value in ratios.cpu().tolist())
+
+
+def _coverage_stats_from_ratios(ratios: tuple[float, ...]) -> ReplacementCoverageStats:
+    if not ratios:
+        return ReplacementCoverageStats(
+            raw_subject_ratio=0.0,
+            coverage_warning="none",
+            empty_frame_count=0,
+            sparse_frame_count=0,
+            longest_sparse_streak=0,
+        )
+    raw_subject_ratio = sum(ratios) / len(ratios)
+    empty = tuple(ratio <= 0.0 for ratio in ratios)
+    sparse = tuple(ratio < LOW_SUBJECT_COVERAGE_RATIO for ratio in ratios)
+    warning = (
+        "low_subject_coverage"
+        if 0.0 < raw_subject_ratio < LOW_SUBJECT_COVERAGE_RATIO
+        else "none"
+    )
+    return ReplacementCoverageStats(
+        raw_subject_ratio=raw_subject_ratio,
+        coverage_warning=warning,
+        empty_frame_count=sum(1 for value in empty if value),
+        sparse_frame_count=sum(1 for value in sparse if value),
+        longest_sparse_streak=_longest_true_streak(sparse),
+    )
 
 
 def _attach_scail_pose2_mask_metadata(
@@ -415,6 +478,7 @@ def _build_tensor_subject_mask(
     output_chunks = []
     lower_contact_stats = []
     raw_subject_pixels = 0.0
+    raw_frame_ratios: list[float] = []
     chunk_frames = max(1, min(TENSOR_FAST_PATH_CHUNK_FRAMES, frames))
     for start in range(0, frames, chunk_frames):
         end = min(start + chunk_frames, frames)
@@ -425,6 +489,7 @@ def _build_tensor_subject_mask(
         )
         mask_chunk = _subject_mask_chunk_from_rgb(torch, rgb)
         raw_subject_pixels += float(mask_chunk.sum().item())
+        raw_frame_ratios.extend(_frame_subject_ratios(mask_chunk))
         mask_chunk = _grow_mask(mask_chunk, grow_pixels)
         mask_chunk, refine_stats = _refine_lower_contact_mask(
             mask_chunk,
@@ -445,6 +510,7 @@ def _build_tensor_subject_mask(
         raise ValueError("pose_video_mask contains no subject pixels")
 
     mask = torch.cat(output_chunks, dim=0).contiguous()
+    coverage_stats = _coverage_stats_from_ratios(tuple(raw_frame_ratios))
     merged_lower_contact_stats = _merge_lower_contact_stats(lower_contact_stats)
     _attach_scail_pose2_mask_metadata(
         mask,
@@ -459,6 +525,7 @@ def _build_tensor_subject_mask(
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        coverage_stats=coverage_stats,
         mask_preset=mask_preset,
         diagnostics=diagnostics,
         grow_pixels=grow_pixels,
@@ -477,6 +544,11 @@ def _build_tensor_subject_mask(
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        raw_subject_ratio=coverage_stats.raw_subject_ratio,
+        coverage_warning=coverage_stats.coverage_warning,
+        coverage_empty_frame_count=coverage_stats.empty_frame_count,
+        coverage_sparse_frame_count=coverage_stats.sparse_frame_count,
+        coverage_longest_sparse_streak=coverage_stats.longest_sparse_streak,
         diagnostics=diagnostics,
         mask_preset=mask_preset,
         fast_path="tensor_subject_mask",
@@ -538,6 +610,7 @@ def _replacement_summary(
     height: int,
     width: int,
     subject_ratio: float,
+    coverage_stats: ReplacementCoverageStats,
     mask_preset: str,
     diagnostics: MaskDiagnostics | None,
     grow_pixels: int,
@@ -555,6 +628,13 @@ def _replacement_summary(
         f"frames={frame_count} "
         f"size={width}x{height} "
         f"subject_ratio={subject_ratio:.6f} "
+        f"raw_subject_ratio={coverage_stats.raw_subject_ratio:.6f} "
+        f"final_subject_ratio={subject_ratio:.6f} "
+        f"coverage_warning={coverage_stats.coverage_warning} "
+        f"coverage_empty_frames={coverage_stats.empty_frame_count} "
+        f"coverage_sparse_frames={coverage_stats.sparse_frame_count} "
+        f"coverage_longest_sparse_streak={coverage_stats.longest_sparse_streak} "
+        f"coverage_limitation=missing_regions_not_recovered_by_grow_blur "
         f"mask_preset={mask_preset} "
         f"grow_pixels={grow_pixels} "
         f"blur_pixels={blur_pixels} "
@@ -596,6 +676,7 @@ def _build_mode_passthrough_mask(
     )
     subject_ratio = float(mask.mean().item())
     diagnostics = mask_diagnostics(mask)
+    coverage_stats = _coverage_stats_from_ratios((1.0,) * frame_count)
     summary = (
         _replacement_summary(
             condition=condition,
@@ -603,6 +684,7 @@ def _build_mode_passthrough_mask(
             height=height,
             width=width,
             subject_ratio=subject_ratio,
+            coverage_stats=coverage_stats,
             mask_preset=mask_preset,
             diagnostics=diagnostics,
             grow_pixels=grow_pixels,
@@ -628,6 +710,11 @@ def _build_mode_passthrough_mask(
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        raw_subject_ratio=coverage_stats.raw_subject_ratio,
+        coverage_warning=coverage_stats.coverage_warning,
+        coverage_empty_frame_count=coverage_stats.empty_frame_count,
+        coverage_sparse_frame_count=coverage_stats.sparse_frame_count,
+        coverage_longest_sparse_streak=coverage_stats.longest_sparse_streak,
         diagnostics=diagnostics,
         mask_preset=mask_preset,
         fast_path="mode_passthrough",
@@ -738,6 +825,7 @@ def build_replacement_denoise_mask(
     raw_subject_pixels = float(mask.sum().item())
     if raw_subject_pixels <= 0:
         raise ValueError("pose_video_mask contains no subject pixels")
+    coverage_stats = _coverage_stats_from_ratios(_frame_subject_ratios(mask))
 
     mask = _grow_mask(mask, grow)
     mask, lower_contact_stats = _refine_lower_contact_mask(
@@ -767,6 +855,7 @@ def build_replacement_denoise_mask(
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        coverage_stats=coverage_stats,
         mask_preset=preset,
         diagnostics=diagnostics,
         grow_pixels=grow,
@@ -785,6 +874,11 @@ def build_replacement_denoise_mask(
         height=height,
         width=width,
         subject_ratio=subject_ratio,
+        raw_subject_ratio=coverage_stats.raw_subject_ratio,
+        coverage_warning=coverage_stats.coverage_warning,
+        coverage_empty_frame_count=coverage_stats.empty_frame_count,
+        coverage_sparse_frame_count=coverage_stats.sparse_frame_count,
+        coverage_longest_sparse_streak=coverage_stats.longest_sparse_streak,
         diagnostics=diagnostics,
         mask_preset=preset,
         fast_path="semantic_indices",
