@@ -7,6 +7,7 @@ from scail2.nlf_geometry import (
     align_pose_video_to_bboxes,
     bbox_payload_is_safe_for_render_repair,
     format_nlf_render_bbox_diagnostics,
+    format_nlf_source_canvas_diagnostics,
     normalize_nlf_bboxes,
     select_nlf_bboxes_for_identity,
 )
@@ -139,6 +140,84 @@ class Scail2NLFGeometryTests(unittest.TestCase):
         self.assertIn("mean_target_coverage=0.250000", summary)
         self.assertIn("mean_center_delta_px=", summary)
         self.assertIn("fallback_reason=none", summary)
+
+    def test_formats_source_canvas_diagnostics_for_matching_inputs(self) -> None:
+        mask = image_frame(8, 6)
+        normalized = normalize_nlf_bboxes([[1, 1, 5, 5]], frame_count=1)
+
+        summary = format_nlf_source_canvas_diagnostics(
+            render_width=8,
+            render_height=6,
+            output_width=4,
+            output_height=3,
+            pose_video_mask=[mask],
+            normalized_bboxes=normalized,
+            bboxes_connected=True,
+            dw_pose_input=None,
+        )
+
+        self.assertIn("render_size=8x6", summary)
+        self.assertIn("output_size=4x3", summary)
+        self.assertIn("mask_size=8x6", summary)
+        self.assertIn("mask_matches_render=True", summary)
+        self.assertIn("bbox_safe=True", summary)
+        self.assertIn("bbox_reason=ok", summary)
+        self.assertIn("source_canvas_mismatch=False", summary)
+
+    def test_formats_source_canvas_diagnostics_for_mask_size_mismatch(self) -> None:
+        mask = image_frame(4, 6)
+        normalized = normalize_nlf_bboxes([[10, 10, 20, 20]], frame_count=1)
+
+        summary = format_nlf_source_canvas_diagnostics(
+            render_width=8,
+            render_height=6,
+            output_width=4,
+            output_height=3,
+            pose_video_mask=[mask],
+            normalized_bboxes=normalized,
+            bboxes_connected=True,
+            dw_pose_input=None,
+        )
+
+        self.assertIn("mask_size=4x6", summary)
+        self.assertIn("mask_matches_render=False", summary)
+        self.assertIn("bbox_safe=False", summary)
+        self.assertIn("bbox_reason=bbox_coordinate_space_mismatch", summary)
+        self.assertIn("source_canvas_mismatch=True", summary)
+
+    def test_formats_source_canvas_diagnostics_with_dwpose_bounds(self) -> None:
+        dw_pose_input = [
+            {
+                "bodies": {
+                    "candidate": [
+                        [
+                            [0.1, 0.2],
+                            [0.9, 0.8],
+                        ]
+                    ],
+                },
+                "faces": [[[0.3, 0.4]]],
+                "hands": [
+                    [[0.5, 0.6]],
+                    [[0.7, 0.75]],
+                ],
+            }
+        ]
+
+        summary = format_nlf_source_canvas_diagnostics(
+            render_width=8,
+            render_height=6,
+            output_width=4,
+            output_height=3,
+            pose_video_mask=None,
+            normalized_bboxes=normalize_nlf_bboxes(None, frame_count=1),
+            bboxes_connected=False,
+            dw_pose_input=dw_pose_input,
+        )
+
+        self.assertIn("dwpose_bounds=x=0.100000..0.900000,y=0.200000..0.800000", summary)
+        self.assertIn("dwpose_normalized=True", summary)
+        self.assertIn("source_canvas_mismatch=False", summary)
 
 
 if __name__ == "__main__":

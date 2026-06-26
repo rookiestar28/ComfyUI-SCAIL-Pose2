@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import os
 import sys
 import types
@@ -82,6 +83,17 @@ class V1PosePipelineTests(unittest.TestCase):
 
         self.assertEqual(("IMAGE", "MASK"), render_node.RETURN_TYPES)
         self.assertEqual(("image", "mask"), render_node.RETURN_NAMES)
+
+    def test_render_nlf_poses_wires_source_canvas_diagnostics(self) -> None:
+        package = import_root_package()
+        render_node = package.NODE_CLASS_MAPPINGS["RenderNLFPoses"]
+
+        source = inspect.getsource(render_node.predict)
+
+        self.assertIn("Render NLF Poses source canvas", source)
+        self.assertIn("format_nlf_source_canvas_diagnostics", source)
+        self.assertIn("output_width=output_width", source)
+        self.assertIn("bboxes_connected=bboxes is not None", source)
 
     def test_nlf_predict_bbox_formatter_preserves_multi_person_candidates(self) -> None:
         import_root_package()

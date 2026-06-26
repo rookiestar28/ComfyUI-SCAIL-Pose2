@@ -81,6 +81,7 @@ from .scail2.nlf_geometry import (
     align_pose_video_to_bboxes,
     bbox_payload_is_safe_for_render_repair,
     format_nlf_render_bbox_diagnostics,
+    format_nlf_source_canvas_diagnostics,
     normalize_nlf_bboxes,
     resize_bhwc_video,
     resize_mask_video,
@@ -926,6 +927,19 @@ class RenderNLFPoses:
             intrinsic_matrix = ori_camera_pose
 
         normalized_bboxes = normalize_nlf_bboxes(bboxes, frame_count=len(pose_input))
+        logging.info(
+            "Render NLF Poses source canvas: %s",
+            format_nlf_source_canvas_diagnostics(
+                render_width=active_render_width,
+                render_height=active_render_height,
+                output_width=output_width,
+                output_height=output_height,
+                pose_video_mask=pose_video_mask,
+                normalized_bboxes=normalized_bboxes,
+                bboxes_connected=bboxes is not None,
+                dw_pose_input=dw_pose_input,
+            ),
+        )
         if bboxes is not None:
             logging.info("Render NLF Poses bbox diagnostics: %s", normalized_bboxes.summary())
 

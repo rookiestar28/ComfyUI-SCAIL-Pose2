@@ -261,6 +261,114 @@ def _format_optional_float(value: float | None) -> str:
     return "none" if value is None else f"{value:.6f}"
 
 
+def _format_optional_bool(value: bool | None) -> str:
+    return "none" if value is None else str(value)
+
+
+def _format_size(size: tuple[int, int] | None) -> str:
+    if size is None:
+        return "none"
+    height, width = size
+    return f"{width}x{height}"
+
+
+def _collect_xy_points(value: Any, points: list[tuple[float, float]]) -> None:
+    raw = _as_list(value)
+    if isinstance(raw, (list, tuple)):
+        if len(raw) >= 2 and _is_number(raw[0]) and _is_number(raw[1]):
+            points.append((float(raw[0]), float(raw[1])))
+            return
+        for item in raw:
+            _collect_xy_points(item, points)
+
+
+def _dwpose_normalized_bounds(dw_pose_input: Any) -> tuple[str, bool | None]:
+    if dw_pose_input is None:
+        return "none", None
+
+    points: list[tuple[float, float]] = []
+    for frame in _as_list(dw_pose_input):
+        if not isinstance(frame, dict):
+            continue
+        bodies = frame.get("bodies", {})
+        if isinstance(bodies, dict):
+            _collect_xy_points(bodies.get("candidate"), points)
+        _collect_xy_points(frame.get("faces"), points)
+        _collect_xy_points(frame.get("hands"), points)
+
+    if not points:
+        return "none", None
+
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    normalized = all(0.0 <= coord <= 1.0 for point in points for coord in point)
+    return (
+        f"x={min(xs):.6f}..{max(xs):.6f},y={min(ys):.6f}..{max(ys):.6f}",
+        normalized,
+    )
+
+
+def _mask_frame_size_or_none(pose_video_mask: Any) -> tuple[int, int] | None:
+    if pose_video_mask is None:
+        return None
+    try:
+        return frame_size(pose_video_mask, kind="semantic_rgb_mask")
+    except Exception:
+        return None
+
+
+def format_nlf_source_canvas_diagnostics(
+    *,
+    render_width: int,
+    render_height: int,
+    output_width: int,
+    output_height: int,
+    pose_video_mask: Any,
+    normalized_bboxes: NormalizedNLFBBoxes,
+    bboxes_connected: bool,
+    dw_pose_input: Any,
+) -> str:
+    """Build a compact source-canvas contract summary for RenderNLFPoses logs."""
+
+    render_size = (int(render_height), int(render_width))
+    output_size = (int(output_height), int(output_width))
+    mask_size = _mask_frame_size_or_none(pose_video_mask)
+    mask_matches_render = None if mask_size is None else mask_size == render_size
+
+    if bboxes_connected:
+        bbox_safe, bbox_reason = bbox_payload_is_safe_for_render_repair(
+            normalized_bboxes,
+            width=render_width,
+            height=render_height,
+        )
+    else:
+        bbox_safe, bbox_reason = None, "not_connected"
+
+    dwpose_bounds, dwpose_normalized = _dwpose_normalized_bounds(dw_pose_input)
+    source_canvas_mismatch = any(
+        issue is True
+        for issue in (
+            mask_matches_render is False,
+            bbox_reason == "bbox_coordinate_space_mismatch",
+            dwpose_normalized is False,
+        )
+    )
+
+    return (
+        "nlf_source_canvas "
+        f"render_size={_format_size(render_size)} "
+        f"output_size={_format_size(output_size)} "
+        f"mask_size={_format_size(mask_size)} "
+        f"mask_matches_render={_format_optional_bool(mask_matches_render)} "
+        f"bbox_source={normalized_bboxes.source} "
+        f"bbox_safe={_format_optional_bool(bbox_safe)} "
+        f"bbox_reason={bbox_reason} "
+        f"dwpose_bounds={dwpose_bounds} "
+        f"dwpose_normalized={_format_optional_bool(dwpose_normalized)} "
+        f"source_canvas_mismatch={source_canvas_mismatch}"
+    )
+
+
 def format_nlf_render_bbox_diagnostics(
     *,
     pose_video: Any,
