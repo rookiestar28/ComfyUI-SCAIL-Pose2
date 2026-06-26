@@ -127,6 +127,8 @@ When original subject body shape leaks into replacement output, first verify the
 
 Compatible downstream integrations should preserve the replacement mask's SCAIL-Pose2 metadata so subject pixels remain `1.0` replace/denoise areas and background pixels remain `0.0` preserve areas after latent conversion.
 
+For replacement mode, `pose_video_mask` must cover the full driving subject across the driving-video timeline. Partial SAM3 coverage can leave uncovered body, clothing, hair, or limb regions on the preserve side of the downstream samples/noise-mask path, so those regions may continue to inherit the original driving subject even when the reference image and text prompt describe a different person or outfit.
+
 #### Reference And Shape Tuning
 
 The canonical route keeps the replacement condition video raw so the official SCAIL-2 pose-latent signal remains intact. If you deliberately use the legacy `SCAILPose2ReplacementConditionVideo` fallback, treat it as an experiment after confirming the sampler mask path is correct; a conservative starting point is `mask_preset=custom`, `grow_pixels=8`, `blur_pixels=0`, `suppression_mode=blur_fill`, and `suppression_strength=1.0`.
@@ -156,6 +158,8 @@ Early sampler previews can still show a noisy or incomplete original background 
 **Stale runtime wrapper copy:** if behavior does not match this README after updating files, confirm the active ComfyUI custom-node folder is using the same ComfyUI-WanVideoWrapper fork that contains SCAIL-Pose2 replacement mask support. A copied or cached older wrapper can still ignore SCAIL-Pose2 mask metadata.
 
 **Mask coverage diagnostics:** compatible wrapper builds log `noise_mask_latent_contract`, `samples_initialization_contract`, and `samples_window_alignment_contract`. Check `subject_ratio`, `preserve_ratio`, `latent_grow_pixels`, `latent_temporal_grow_frames`, `subject_source`, and `preserve_source` to confirm covered subject pixels are not initialized from the original driving samples.
+
+**Prompt and clothing mismatch:** Prompt clothing detail cannot compensate for an undercovered driving-subject mask. If replacement output changes clothing randomly or returns to the driving-video person mid-generation, first fix SAM3 object selection and `pose_video_mask` coverage so the full driving subject is in the denoise/replace region before tuning prompt wording or SCAIL-2 strength controls.
 
 **Render NLF geometry drift:** first confirm the active `RenderNLFPoses` log includes the expected `nodes_sha256` and geometry contract fields after updating the node pack. Then keep `render_width` and `render_height` on the source video canvas, temporarily disconnect `ref_dw_pose`, disable DWPose face/hand overlays, test bbox-only repair by disconnecting `pose_video_mask`, and reconnect `pose_video_mask` only after its mask size and bbox diagnostics match the source canvas.
 

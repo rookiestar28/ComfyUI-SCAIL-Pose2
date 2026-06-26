@@ -136,6 +136,8 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertIn("Stale runtime wrapper copy", readme)
         self.assertIn("Mask coverage diagnostics", readme)
         self.assertIn("Render NLF geometry drift", readme)
+        self.assertIn("must cover the full driving subject", readme)
+        self.assertIn("Prompt clothing detail cannot compensate", readme)
         self.assertIn("temporarily disconnect `ref_dw_pose`", readme)
         self.assertIn("test bbox-only repair", readme)
         self.assertIn("noise_mask_latent_contract", readme)

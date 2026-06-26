@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from scail2 import wanvideo_contracts
+from scail2.workflow_static import diagnose_render_nlf_connections
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,6 +120,43 @@ class WorkflowSkeletonTests(unittest.TestCase):
             "SCAILPose2ColoredMask",
             source_node_for_input(render, "pose_video_mask")["type"],
         )
+
+    def test_example_workflow_reports_render_nlf_bbox_and_mask_connections(self) -> None:
+        diagnostics = diagnose_render_nlf_connections(load_example_workflow())
+
+        self.assertEqual(1, diagnostics.render_node_count)
+        self.assertEqual(("362",), diagnostics.render_node_ids)
+        self.assertTrue(diagnostics.bboxes_connected)
+        self.assertTrue(diagnostics.pose_video_mask_connected)
+        self.assertIn("bboxes_connected=True", diagnostics.summary())
+        self.assertIn("pose_video_mask_connected=True", diagnostics.summary())
+
+    def test_render_nlf_static_diagnostics_reports_missing_mask_connection(self) -> None:
+        workflow = {
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "RenderNLFPoses",
+                    "inputs": [
+                        {"name": "nlf_poses", "link": 10},
+                        {"name": "bboxes", "link": 11},
+                        {"name": "pose_video_mask", "link": None},
+                    ],
+                },
+                {"id": 2, "type": "NLFPredict", "inputs": []},
+            ],
+            "links": [
+                [10, 2, 0, 1, 0, "NLFPRED"],
+                [11, 2, 1, 1, 3, "BBOX"],
+            ],
+        }
+
+        diagnostics = diagnose_render_nlf_connections(workflow)
+
+        self.assertEqual(1, diagnostics.render_node_count)
+        self.assertTrue(diagnostics.bboxes_connected)
+        self.assertFalse(diagnostics.pose_video_mask_connected)
+        self.assertIn("pose_video_mask_connected=False", diagnostics.summary())
 
     def test_scail2_condition_skeleton_lists_unsupported_wrapper_features(self) -> None:
         data = load_skeleton("scail2_condition_builder.json")
