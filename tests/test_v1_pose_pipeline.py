@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import inspect
 import os
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scail2.geometry import BoundingBox, frame_bboxes
 from scail2.pose_alignment import AlignmentTransform
@@ -58,6 +61,46 @@ def import_render_torch_module():
     return module
 
 
+class ContainedFolderPathsDouble:
+    """Minimal ComfyUI folder_paths behavior used by SaveNLFPosesAs3D."""
+
+    def __init__(self, output_dir: Path):
+        self.output_dir = output_dir.resolve()
+
+    def get_output_directory(self) -> str:
+        return str(self.output_dir)
+
+    def get_save_image_path(
+        self,
+        filename_prefix: str,
+        output_dir: str,
+        image_width: int = 0,
+        image_height: int = 0,
+    ):
+        del image_width, image_height
+        normalized = os.path.normpath(filename_prefix)
+        subfolder = os.path.dirname(normalized)
+        filename = os.path.basename(normalized)
+        output_path = Path(output_dir).resolve()
+        full_output_folder = (output_path / subfolder).resolve()
+        try:
+            contained = os.path.commonpath(
+                (str(output_path), str(full_output_folder))
+            ) == str(output_path)
+        except ValueError:
+            contained = False
+        if not contained:
+            raise ValueError("saving outside the output folder is not allowed")
+        full_output_folder.mkdir(parents=True, exist_ok=True)
+        return (
+            str(full_output_folder),
+            filename,
+            1,
+            subfolder,
+            filename_prefix,
+        )
+
+
 class V1PosePipelineTests(unittest.TestCase):
     def test_root_package_imports_and_preserves_node_keys(self) -> None:
         package = import_root_package()
@@ -83,6 +126,145 @@ class V1PosePipelineTests(unittest.TestCase):
 
         self.assertEqual(("IMAGE", "MASK"), render_node.RETURN_TYPES)
         self.assertEqual(("image", "mask"), render_node.RETURN_NAMES)
+
+    def test_save_nlf_poses_rejects_output_traversal(self) -> None:
+        package = import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        nlf_render_module = importlib.import_module(
+            f"{PACKAGE_NAME}.NLFPoseExtract.nlf_render"
+        )
+        export_module = importlib.import_module(
+            f"{PACKAGE_NAME}.render_3d.export_utils"
+        )
+        temp_parent = ROOT / ".tmp"
+        temp_parent.mkdir(exist_ok=True)
+
+        with tempfile.TemporaryDirectory(dir=temp_parent) as temp_root:
+            output_dir = Path(temp_root) / "output"
+            output_dir.mkdir()
+            folder_paths_double = ContainedFolderPathsDouble(output_dir)
+
+            def reject_escaped_export(_specs, filepath, **_kwargs):
+                candidate = Path(filepath).resolve()
+                if not candidate.is_relative_to(output_dir.resolve()):
+                    self.fail("vulnerable exporter path escaped configured output")
+
+            node = package.NODE_CLASS_MAPPINGS["SaveNLFPosesAs3D"]()
+            with (
+                mock.patch.object(nodes_module, "folder_paths", folder_paths_double),
+                mock.patch.object(
+                    nlf_render_module,
+                    "get_cylinder_specs_list_from_poses",
+                    return_value=[[]],
+                ),
+                mock.patch.object(
+                    export_module,
+                    "save_cylinder_specs_as_glb_animation",
+                    side_effect=reject_escaped_export,
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "outside the output folder",
+                ):
+                    node.save_3d(
+                        nlf_poses=[],
+                        filename_prefix=os.path.join("..", "escaped"),
+                        fps=24.0,
+                        cylinder_radius=21.5,
+                    )
+
+    def test_save_nlf_poses_rejects_absolute_output_prefix(self) -> None:
+        package = import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        nlf_render_module = importlib.import_module(
+            f"{PACKAGE_NAME}.NLFPoseExtract.nlf_render"
+        )
+        export_module = importlib.import_module(
+            f"{PACKAGE_NAME}.render_3d.export_utils"
+        )
+        temp_parent = ROOT / ".tmp"
+        temp_parent.mkdir(exist_ok=True)
+
+        with tempfile.TemporaryDirectory(dir=temp_parent) as temp_root:
+            output_dir = Path(temp_root) / "output"
+            output_dir.mkdir()
+            absolute_escape = Path(temp_root) / "absolute-escape"
+            folder_paths_double = ContainedFolderPathsDouble(output_dir)
+            node = package.NODE_CLASS_MAPPINGS["SaveNLFPosesAs3D"]()
+
+            with (
+                mock.patch.object(nodes_module, "folder_paths", folder_paths_double),
+                mock.patch.object(
+                    nlf_render_module,
+                    "get_cylinder_specs_list_from_poses",
+                    return_value=[[]],
+                ),
+                mock.patch.object(
+                    export_module,
+                    "save_cylinder_specs_as_glb_animation",
+                ) as exporter,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "outside the output folder",
+                ):
+                    node.save_3d(
+                        nlf_poses=[],
+                        filename_prefix=str(absolute_escape),
+                        fps=24.0,
+                        cylinder_radius=21.5,
+                    )
+
+            exporter.assert_not_called()
+
+    def test_save_nlf_poses_preserves_contained_nested_prefix(self) -> None:
+        package = import_root_package()
+        nodes_module = sys.modules[f"{PACKAGE_NAME}.nodes"]
+        nlf_render_module = importlib.import_module(
+            f"{PACKAGE_NAME}.NLFPoseExtract.nlf_render"
+        )
+        export_module = importlib.import_module(
+            f"{PACKAGE_NAME}.render_3d.export_utils"
+        )
+        temp_parent = ROOT / ".tmp"
+        temp_parent.mkdir(exist_ok=True)
+
+        with tempfile.TemporaryDirectory(dir=temp_parent) as temp_root:
+            output_dir = Path(temp_root) / "output"
+            output_dir.mkdir()
+            folder_paths_double = ContainedFolderPathsDouble(output_dir)
+            exported_paths = []
+
+            def capture_export(_specs, filepath, **_kwargs):
+                exported_paths.append(Path(filepath).resolve())
+
+            node = package.NODE_CLASS_MAPPINGS["SaveNLFPosesAs3D"]()
+            with (
+                mock.patch.object(nodes_module, "folder_paths", folder_paths_double),
+                mock.patch.object(
+                    nlf_render_module,
+                    "get_cylinder_specs_list_from_poses",
+                    return_value=[[]],
+                ),
+                mock.patch.object(
+                    export_module,
+                    "save_cylinder_specs_as_glb_animation",
+                    side_effect=capture_export,
+                ),
+            ):
+                (returned_path,) = node.save_3d(
+                    nlf_poses=[],
+                    filename_prefix=os.path.join("animations", "walk"),
+                    fps=24.0,
+                    cylinder_radius=21.5,
+                )
+
+            self.assertEqual(1, len(exported_paths))
+            exported_path = exported_paths[0]
+            self.assertEqual((output_dir / "animations").resolve(), exported_path.parent)
+            self.assertRegex(exported_path.name, r"^walk_\d{8}_\d{6}\.glb$")
+            self.assertEqual(exported_path, Path(returned_path).resolve())
 
     def test_render_nlf_runtime_provenance_is_public_safe(self) -> None:
         import_root_package()

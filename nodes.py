@@ -1268,11 +1268,16 @@ class SaveNLFPosesAs3D:
             logging.info(f"Generated {len(cylinder_specs_list)} frames of cylinder specs")
 
             output_dir = folder_paths.get_output_directory()
-            full_output_folder = os.path.join(output_dir, filename_prefix)
-            if not os.path.exists(full_output_folder):
-                os.makedirs(full_output_folder)
+            # SECURITY: keep free-text prefixes behind ComfyUI's output containment guard.
+            (
+                full_output_folder,
+                safe_filename_prefix,
+                _counter,
+                _subfolder,
+                _normalized_prefix,
+            ) = folder_paths.get_save_image_path(filename_prefix, output_dir)
 
-            filename = f"{filename_prefix}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.glb"
+            filename = f"{safe_filename_prefix}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.glb"
             filepath = os.path.join(full_output_folder, filename)
 
             logging.info(f"Saving as GLB animation to {full_output_folder}")
