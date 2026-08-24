@@ -3,6 +3,7 @@
   "title": "Wan SCAIL v1 Legacy Pose Control Skeleton",
   "execution": "static_only",
   "live_generation": "deferred",
+  "executable": false,
   "host": {
     "family": "kijai-vanilla",
     "revision": "088128b2242\u00342e110d3906c6750e9a3a348a659b"
@@ -14,6 +15,26 @@
     "render_nlf_scope": "legacy_v1_only",
     "scail2_semantic_mask_parity": false
   },
+  "required_external_inputs": [
+    "nlf_poses",
+    "reference_image",
+    "clip_vision",
+    "vae",
+    "model",
+    "text_embeds",
+    "scheduler",
+    "width",
+    "height",
+    "num_frames"
+  ],
+  "optional_external_inputs": [
+    "bboxes",
+    "pose_video_mask"
+  ],
+  "known_limitations": [
+    "This is a static legacy-v1 topology contract, not an importable ComfyUI workflow.",
+    "The legacy pose path requires rendered pose images and does not provide SCAIL-2 semantic-mask parity."
+  ],
   "nodes": [
     {
       "id": "workflow_inputs",

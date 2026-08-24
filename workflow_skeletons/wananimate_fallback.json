@@ -4,6 +4,26 @@
   "execution": "static_only",
   "live_generation": "deferred",
   "executable": false,
+  "host": {
+    "family": "kijai-vanilla",
+    "revision": "088128b224\u003242e110d3906c6750e9a3a348a659b"
+  },
+  "required_external_inputs": [
+    "scail2_condition",
+    "vae",
+    "width",
+    "height",
+    "num_frames",
+    "force_offload",
+    "frame_window_size",
+    "colormatch",
+    "pose_strength",
+    "face_strength"
+  ],
+  "known_limitations": [
+    "This is a non-executable conceptual mapping and no registered ComfyUI adapter supplies the target inputs.",
+    "The preserved Python conversion explicitly loses SCAIL-2 semantic information and requires opt-in."
+  ],
   "classification": {
     "mode": "wananimate_fallback",
     "decision": "reclassified_non_executable_design_note",

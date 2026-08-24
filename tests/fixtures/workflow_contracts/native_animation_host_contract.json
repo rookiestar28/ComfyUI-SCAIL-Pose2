@@ -2,10 +2,24 @@
   "schema": "scail_pose2.workflow_contract.v1",
   "workflow_id": "native-animation-host-subgraph",
   "classification": "static_host_subgraph",
+  "mode": "animation",
+  "execution": "static_only",
+  "executable": false,
   "host": {
     "family": "rookiestar28-scail2",
     "revision": "ef95cfa0eef9b5bc8704aec6b7d5963d23ad02a\u0039"
   },
+  "required_external_inputs": [
+    "scail2_condition",
+    "vae",
+    "model",
+    "text_embeds",
+    "scheduler"
+  ],
+  "known_limitations": [
+    "This fixture validates the pinned wrapper host subgraph and is not an importable ComfyUI workflow.",
+    "Local mask, tracking, and adapter preprocessing are represented as external contract inputs."
+  ],
   "nodes": [
     {
       "id": "empty",

@@ -38,6 +38,70 @@ REPLACEMENT_CONTRACT_FIXTURE = (
     / "workflow_contracts"
     / "replacement_background_lock_host_contract.json"
 )
+LEGACY_V1_CONTRACT_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_contracts"
+    / "legacy_v1_pose_control_host_contract.json"
+)
+SKELETON_EXPECTED_HOST_FAMILIES = {
+    "scail2_condition_builder.json": "rookiestar28-scail2",
+    "wan_scail_v1_pose_control.json": "kijai-vanilla",
+    "wananimate_fallback.json": "kijai-vanilla",
+    "wanvideo_native_scail2.json": "rookiestar28-scail2",
+    "wanvideo_replacement_background_lock.json": "rookiestar28-scail2",
+}
+CONCEPTUAL_REQUIRED_EXTERNAL_INPUTS = {
+    "scail2_condition_builder.json": {
+        "driving_track_data",
+        "reference_track_data_or_mask",
+        "driving_or_pose_video",
+        "reference_image",
+    },
+    "wananimate_fallback.json": {
+        "scail2_condition",
+        "vae",
+        "width",
+        "height",
+        "num_frames",
+        "force_offload",
+        "frame_window_size",
+        "colormatch",
+        "pose_strength",
+        "face_strength",
+    },
+}
+SKELETON_EXPECTED_OPTIONAL_EXTERNAL_INPUTS = {
+    "wan_scail_v1_pose_control.json": {"bboxes", "pose_video_mask"},
+}
+HOST_FIXTURE_EXPECTED_EXTERNAL_INPUTS = {
+    "native_animation_host_contract.json": {
+        "scail2_condition",
+        "vae",
+        "model",
+        "text_embeds",
+        "scheduler",
+    },
+    "replacement_background_lock_host_contract.json": {
+        "driving_video",
+        "denoise_mask",
+        "scail2_condition",
+        "vae",
+        "model",
+        "text_embeds",
+        "scheduler",
+    },
+    "legacy_v1_pose_control_host_contract.json": {
+        "reference_image",
+        "pose_images",
+        "clip_vision",
+        "vae",
+        "model",
+        "text_embeds",
+        "scheduler",
+    },
+}
 NATIVE_ANIMATION_FORBIDDEN_CLASSES = {
     "RenderNLFPoses",
     "NLFPredictPoses",
@@ -214,6 +278,62 @@ def load_skeleton(name: str):
     return json.loads((SKELETON_DIR / name).read_text(encoding="utf-8"))
 
 
+def load_legacy_v1_contract_fixture():
+    return json.loads(LEGACY_V1_CONTRACT_FIXTURE.read_text(encoding="utf-8"))
+
+
+def expected_skeleton_external_inputs(data, name):
+    if name in CONCEPTUAL_REQUIRED_EXTERNAL_INPUTS:
+        return CONCEPTUAL_REQUIRED_EXTERNAL_INPUTS[name]
+    workflow_inputs = next(
+        node for node in data.get("nodes", []) if node.get("id") == "workflow_inputs"
+    )
+    all_inputs = {output["name"] for output in workflow_inputs["outputs"]}
+    return all_inputs - SKELETON_EXPECTED_OPTIONAL_EXTERNAL_INPUTS.get(name, set())
+
+
+def artifact_metadata_diagnostics(
+    data, *, family, external_inputs, optional_external_inputs=()
+):
+    diagnostics = []
+    if data.get("execution") != "static_only":
+        diagnostics.append("INVALID_EXECUTION_CLASSIFICATION")
+    if data.get("executable") is not False:
+        diagnostics.append("EXECUTABLE_ARTIFACT_CLAIM")
+
+    host = data.get("host", {})
+    if host.get("family") != family:
+        diagnostics.append("INVALID_HOST_FAMILY")
+    else:
+        manifest = load_contract_manifest()
+        if manifest.find_family(host.get("family"), host.get("revision")) is None:
+            diagnostics.append("UNSUPPORTED_HOST_REVISION")
+
+    declared_inputs = data.get("required_external_inputs")
+    if not isinstance(declared_inputs, list) or set(declared_inputs) != set(external_inputs):
+        diagnostics.append("INCOMPLETE_EXTERNAL_INPUTS")
+    elif len(declared_inputs) != len(set(declared_inputs)):
+        diagnostics.append("DUPLICATE_EXTERNAL_INPUTS")
+
+    declared_optional = data.get("optional_external_inputs", [])
+    if not isinstance(declared_optional, list) or set(declared_optional) != set(
+        optional_external_inputs
+    ):
+        diagnostics.append("INCOMPLETE_OPTIONAL_EXTERNAL_INPUTS")
+    elif len(declared_optional) != len(set(declared_optional)):
+        diagnostics.append("DUPLICATE_OPTIONAL_EXTERNAL_INPUTS")
+    if isinstance(declared_inputs, list) and isinstance(declared_optional, list):
+        if set(declared_inputs) & set(declared_optional):
+            diagnostics.append("OVERLAPPING_EXTERNAL_INPUTS")
+
+    limitations = data.get("known_limitations")
+    if not isinstance(limitations, list) or not limitations or not all(
+        isinstance(item, str) and item.strip() for item in limitations
+    ):
+        diagnostics.append("MISSING_KNOWN_LIMITATIONS")
+    return tuple(sorted(diagnostics))
+
+
 def load_render_nlf_fixture():
     return json.loads(RENDER_NLF_FIXTURE.read_text(encoding="utf-8"))
 
@@ -380,6 +500,159 @@ class WorkflowSkeletonTests(unittest.TestCase):
                 self.assertEqual("static_only", data["execution"])
                 self.assertEqual("deferred", data["live_generation"])
                 self.assertTrue(data["nodes"])
+
+    def test_distributable_workflow_artifact_metadata_is_complete(self) -> None:
+        for name, family in SKELETON_EXPECTED_HOST_FAMILIES.items():
+            with self.subTest(kind="skeleton", name=name):
+                data = load_skeleton(name)
+                self.assertFalse(
+                    artifact_metadata_diagnostics(
+                        data,
+                        family=family,
+                        external_inputs=expected_skeleton_external_inputs(data, name),
+                        optional_external_inputs=SKELETON_EXPECTED_OPTIONAL_EXTERNAL_INPUTS.get(
+                            name, set()
+                        ),
+                    )
+                )
+
+        fixture_paths = {
+            NATIVE_ANIMATION_CONTRACT_FIXTURE.name: NATIVE_ANIMATION_CONTRACT_FIXTURE,
+            REPLACEMENT_CONTRACT_FIXTURE.name: REPLACEMENT_CONTRACT_FIXTURE,
+            LEGACY_V1_CONTRACT_FIXTURE.name: LEGACY_V1_CONTRACT_FIXTURE,
+        }
+        expected_families = {
+            NATIVE_ANIMATION_CONTRACT_FIXTURE.name: "rookiestar28-scail2",
+            REPLACEMENT_CONTRACT_FIXTURE.name: "rookiestar28-scail2",
+            LEGACY_V1_CONTRACT_FIXTURE.name: "kijai-vanilla",
+        }
+        for name, path in fixture_paths.items():
+            with self.subTest(kind="host_fixture", name=name):
+                data = json.loads(path.read_text(encoding="utf-8"))
+                self.assertFalse(
+                    artifact_metadata_diagnostics(
+                        data,
+                        family=expected_families[name],
+                        external_inputs=HOST_FIXTURE_EXPECTED_EXTERNAL_INPUTS[name],
+                    )
+                )
+
+    def test_workflow_artifact_metadata_mutations_fail_closed(self) -> None:
+        data = load_skeleton("wanvideo_native_scail2.json")
+        expected_inputs = expected_skeleton_external_inputs(
+            data, "wanvideo_native_scail2.json"
+        )
+        mutations = []
+
+        executable = copy.deepcopy(data)
+        executable["executable"] = True
+        mutations.append(executable)
+        live = copy.deepcopy(data)
+        live["execution"] = "live"
+        mutations.append(live)
+        wrong_revision = copy.deepcopy(data)
+        wrong_revision["host"]["revision"] = "0" * 40
+        mutations.append(wrong_revision)
+        missing_input = copy.deepcopy(data)
+        missing_input["required_external_inputs"] = sorted(expected_inputs)[1:]
+        mutations.append(missing_input)
+        no_limitations = copy.deepcopy(data)
+        no_limitations["known_limitations"] = []
+        mutations.append(no_limitations)
+
+        for index, mutated in enumerate(mutations):
+            with self.subTest(index=index):
+                self.assertTrue(
+                    artifact_metadata_diagnostics(
+                        mutated,
+                        family="rookiestar28-scail2",
+                        external_inputs=expected_inputs,
+                    )
+                )
+
+        legacy = load_skeleton("wan_scail_v1_pose_control.json")
+        legacy_required = expected_skeleton_external_inputs(
+            legacy, "wan_scail_v1_pose_control.json"
+        )
+        legacy_optional = SKELETON_EXPECTED_OPTIONAL_EXTERNAL_INPUTS[
+            "wan_scail_v1_pose_control.json"
+        ]
+        promoted = copy.deepcopy(legacy)
+        promoted["required_external_inputs"].append("bboxes")
+        promoted["optional_external_inputs"] = ["pose_video_mask"]
+        self.assertTrue(
+            artifact_metadata_diagnostics(
+                promoted,
+                family="kijai-vanilla",
+                external_inputs=legacy_required,
+                optional_external_inputs=legacy_optional,
+            )
+        )
+
+    def test_workflow_test_data_paths_are_tracked_only_boundaries(self) -> None:
+        paths = (
+            SKELETON_DIR,
+            RENDER_NLF_FIXTURE,
+            NATIVE_ANIMATION_CONTRACT_FIXTURE,
+            REPLACEMENT_CONTRACT_FIXTURE,
+            LEGACY_V1_CONTRACT_FIXTURE,
+            ROOT / "workflow_contracts" / "wanvideo_host_contracts.v1.json",
+        )
+        forbidden_roots = {".planning", ".sessions", "reference", ".reference"}
+        for path in paths:
+            with self.subTest(path=path.name):
+                relative = path.relative_to(ROOT)
+                self.assertNotIn(relative.parts[0], forbidden_roots)
+                self.assertTrue(path.exists())
+
+    def test_legacy_v1_host_contract_passes_source_validator(self) -> None:
+        fixture = load_legacy_v1_contract_fixture()
+        result = validate_workflow_contract(fixture)
+
+        self.assertTrue(result.valid)
+        self.assertEqual((), result.diagnostics)
+        self.assertEqual("static_host_subgraph", fixture["classification"])
+        self.assertEqual("legacy_v1_pose_control", fixture["mode"])
+        self.assertNotIn(
+            "RenderNLFPoses",
+            {node["class_type"] for node in fixture["nodes"]},
+        )
+        serialized = json.dumps(fixture, sort_keys=True)
+        for forbidden in (".planning", "reference/docs", "prompt"):
+            self.assertNotIn(forbidden, serialized)
+        self.assertNotRegex(serialized, r"[A-Za-z]:\\")
+        self.assertNotRegex(serialized, r"\bS2W\d+\b")
+
+    def test_legacy_v1_host_contract_mutations_fail_closed(self) -> None:
+        fixture = load_legacy_v1_contract_fixture()
+        mutations = []
+
+        missing_reference_vae = copy.deepcopy(fixture)
+        next(
+            node for node in missing_reference_vae["nodes"] if node["id"] == "reference"
+        )["inputs"].pop("vae")
+        mutations.append(missing_reference_vae)
+        missing_pose_vae = copy.deepcopy(fixture)
+        next(node for node in missing_pose_vae["nodes"] if node["id"] == "pose")[
+            "inputs"
+        ].pop("vae")
+        mutations.append(missing_pose_vae)
+        missing_clip_model = copy.deepcopy(fixture)
+        next(node for node in missing_clip_model["nodes"] if node["id"] == "clip")[
+            "inputs"
+        ].pop("clip_vision")
+        mutations.append(missing_clip_model)
+        invalid_clip_output = copy.deepcopy(fixture)
+        next(
+            link
+            for link in invalid_clip_output["links"]
+            if link["to"] == ["reference", "clip_embeds"]
+        )["from"][1] = "WANVIDIMAGE_CLIPEMBEDS"
+        mutations.append(invalid_clip_output)
+
+        for index, mutated in enumerate(mutations):
+            with self.subTest(index=index):
+                self.assertTrue(inspect_workflow_contract(mutated))
 
     def test_v1_pose_control_skeleton_matches_wan_scail_contracts(self) -> None:
         data = load_skeleton("wan_scail_v1_pose_control.json")

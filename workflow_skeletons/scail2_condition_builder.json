@@ -3,6 +3,21 @@
   "title": "SCAIL-2 Colored Mask, Condition, And WanVideo Adapter Skeleton",
   "execution": "static_only",
   "live_generation": "deferred",
+  "executable": false,
+  "host": {
+    "family": "rookiestar28-scail2",
+    "revision": "ef95cfa0ee\u00669b5bc8704aec6b7d5963d23ad02a9"
+  },
+  "required_external_inputs": [
+    "driving_track_data",
+    "reference_track_data_or_mask",
+    "driving_or_pose_video",
+    "reference_image"
+  ],
+  "known_limitations": [
+    "This is a static preprocessing and adapter contract, not an importable ComfyUI workflow.",
+    "Live generation requires the pinned SCAIL-2 wrapper consumer and user-supplied runtime inputs."
+  ],
   "nodes": [
     {
       "id": "colored_masks",

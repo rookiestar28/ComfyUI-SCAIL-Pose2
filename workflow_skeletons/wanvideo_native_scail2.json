@@ -3,6 +3,7 @@
   "title": "Native SCAIL-2 Animation To WanVideoWrapper Skeleton",
   "execution": "static_only",
   "live_generation": "deferred",
+  "executable": false,
   "host": {
     "family": "rookiestar28-scail2",
     "revision": "ef95cfa0eef9b5bc8704aec6b7d5963d23ad02a\u0039"
@@ -13,6 +14,22 @@
     "host_validator_fixture": "tests/fixtures/workflow_contracts/native_animation_host_contract.json",
     "external_inputs_are_placeholders": true
   },
+  "required_external_inputs": [
+    "driving_video",
+    "reference_image",
+    "reference_mask",
+    "model",
+    "text_embeds",
+    "vae",
+    "scheduler",
+    "width",
+    "height",
+    "num_frames"
+  ],
+  "known_limitations": [
+    "This is a static animation topology contract, not an importable ComfyUI workflow.",
+    "Live generation requires compatible host nodes, model assets, and user-supplied external inputs."
+  ],
   "contract_defaults": {
     "width": 512,
     "height": 512,

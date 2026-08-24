@@ -1,0 +1,86 @@
+{
+  "schema": "scail_pose2.workflow_contract.v1",
+  "workflow_id": "legacy-v1-pose-control-host-subgraph",
+  "classification": "static_host_subgraph",
+  "mode": "legacy_v1_pose_control",
+  "execution": "static_only",
+  "executable": false,
+  "host": {
+    "family": "kijai-vanilla",
+    "revision": "088128b224\u003242e110d3906c6750e9a3a348a659b"
+  },
+  "required_external_inputs": [
+    "reference_image",
+    "pose_images",
+    "clip_vision",
+    "vae",
+    "model",
+    "text_embeds",
+    "scheduler"
+  ],
+  "known_limitations": [
+    "This fixture validates only the pinned wrapper host subgraph and is not an importable ComfyUI workflow.",
+    "RenderNLFPoses remains in the separate legacy skeleton because it is a local preprocessing node outside the wrapper manifest.",
+    "This legacy path does not provide SCAIL-2 RGB semantic-mask parity."
+  ],
+  "nodes": [
+    {
+      "id": "empty",
+      "class_type": "WanVideoEmptyEmbeds",
+      "inputs": {"width": 512, "height": 512, "num_frames": 81}
+    },
+    {
+      "id": "clip",
+      "class_type": "WanVideoClipVisionEncode",
+      "inputs": {
+        "clip_vision": "external-clip-vision",
+        "image_1": "external-reference-image",
+        "strength_1": 1.0,
+        "strength_2": 1.0,
+        "crop": "center",
+        "combine_embeds": "average",
+        "force_offload": true
+      }
+    },
+    {
+      "id": "reference",
+      "class_type": "WanVideoAddSCAILReferenceEmbeds",
+      "inputs": {
+        "vae": "external-vae",
+        "ref_image": "external-reference-image",
+        "strength": 1.0,
+        "start_percent": 0.0,
+        "end_percent": 1.0
+      }
+    },
+    {
+      "id": "pose",
+      "class_type": "WanVideoAddSCAILPoseEmbeds",
+      "inputs": {
+        "vae": "external-vae",
+        "pose_images": "external-rendered-pose-images",
+        "strength": 1.0,
+        "start_percent": 0.0,
+        "end_percent": 1.0
+      }
+    },
+    {
+      "id": "sampler",
+      "class_type": "WanVideoSamplerv2",
+      "inputs": {
+        "model": "external-model",
+        "cfg": 5.0,
+        "seed": 0,
+        "force_offload": true,
+        "scheduler": "external-scheduler",
+        "text_embeds": "external-text-embeds"
+      }
+    }
+  ],
+  "links": [
+    {"from": ["empty", "image_embeds"], "to": ["reference", "embeds"], "type": "WANVIDIMAGE_EMBEDS"},
+    {"from": ["clip", "image_embeds"], "to": ["reference", "clip_embeds"], "type": "WANVIDIMAGE_CLIPEMBEDS"},
+    {"from": ["reference", "image_embeds"], "to": ["pose", "embeds"], "type": "WANVIDIMAGE_EMBEDS"},
+    {"from": ["pose", "image_embeds"], "to": ["sampler", "image_embeds"], "type": "WANVIDIMAGE_EMBEDS"}
+  ]
+}
