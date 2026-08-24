@@ -1,0 +1,248 @@
+{
+  "schema": "scail_pose2.host_compatibility.v1",
+  "families": [
+    {
+      "family": "comfyui-core",
+      "revision": "b78cec879b\u0039460d5cb25228a83a942fb78d2cd24",
+      "origin": "https://github.com/Comfy-Org/ComfyUI.git",
+      "nodes": [
+        {
+          "class": "WanSCAILToVideo",
+          "required_inputs": [
+            {"name": "positive", "type": "CONDITIONING"},
+            {"name": "negative", "type": "CONDITIONING"},
+            {"name": "vae", "type": "VAE"},
+            {"name": "width", "type": "INT"},
+            {"name": "height", "type": "INT"},
+            {"name": "length", "type": "INT"},
+            {"name": "batch_size", "type": "INT"},
+            {"name": "pose_strength", "type": "FLOAT"},
+            {"name": "pose_start", "type": "FLOAT"},
+            {"name": "pose_end", "type": "FLOAT"},
+            {"name": "video_frame_offset", "type": "INT"},
+            {"name": "previous_frame_count", "type": "INT"}
+          ],
+          "optional_inputs": [
+            {"name": "pose_video", "type": "IMAGE"},
+            {"name": "pose_video_mask", "type": "IMAGE"},
+            {"name": "replacement_mode", "type": "BOOLEAN"},
+            {"name": "reference_image", "type": "IMAGE"},
+            {"name": "reference_image_mask", "type": "IMAGE"},
+            {"name": "clip_vision_output", "type": "CLIP_VISION_OUTPUT"},
+            {"name": "previous_frames", "type": "IMAGE"}
+          ],
+          "schema_order": ["positive", "negative", "vae", "width", "height", "length", "batch_size", "pose_video", "pose_video_mask", "replacement_mode", "pose_strength", "pose_start", "pose_end", "reference_image", "reference_image_mask", "clip_vision_output", "video_frame_offset", "previous_frame_count", "previous_frames"],
+          "outputs": [
+            {"index": 0, "name": "positive", "type": "CONDITIONING"},
+            {"index": 1, "name": "negative", "type": "CONDITIONING"},
+            {"index": 2, "name": "latent", "type": "LATENT"},
+            {"index": 3, "name": "video_frame_offset", "type": "INT"}
+          ],
+          "output_count": 4,
+          "evidence": {"path": "comfy_extras/nodes_scail.py", "symbol": "WanSCAILToVideo", "lines": "141-180"}
+        },
+        {
+          "class": "SCAIL2ColoredMask",
+          "required_inputs": [
+            {"name": "driving_track_data", "type": "SAM3_TRACK_DATA"},
+            {"name": "object_indices", "type": "STRING"},
+            {"name": "sort_by", "type": "COMBO"},
+            {"name": "replacement_mode", "type": "BOOLEAN"}
+          ],
+          "optional_inputs": [
+            {"name": "ref_track_data", "type": "SAM3_TRACK_DATA/MASK"}
+          ],
+          "schema_order": ["driving_track_data", "ref_track_data", "object_indices", "sort_by", "replacement_mode"],
+          "outputs": [
+            {"index": 0, "name": "pose_video_mask", "type": "IMAGE"},
+            {"index": 1, "name": "reference_image_mask", "type": "IMAGE"}
+          ],
+          "output_count": 2,
+          "evidence": {"path": "comfy_extras/nodes_scail.py", "symbol": "SCAIL2ColoredMask", "lines": "273-305"}
+        }
+      ]
+    },
+    {
+      "family": "kijai-vanilla",
+      "revision": "088128b224\u003242e110d3906c6750e9a3a348a659b",
+      "origin": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git",
+      "nodes": [
+        {
+          "class": "WanVideoContextOptions",
+          "required_inputs": [
+            {"name": "context_schedule", "type": "COMBO"}, {"name": "context_frames", "type": "INT"},
+            {"name": "context_stride", "type": "INT"}, {"name": "context_overlap", "type": "INT"},
+            {"name": "freenoise", "type": "BOOLEAN"}, {"name": "verbose", "type": "BOOLEAN"}
+          ],
+          "optional_inputs": [{"name": "fuse_method", "type": "COMBO"}, {"name": "reference_latent", "type": "LATENT"}],
+          "schema_order": ["context_schedule", "context_frames", "context_stride", "context_overlap", "freenoise", "verbose", "fuse_method", "reference_latent"],
+          "outputs": [{"index": 0, "name": "context_options", "type": "WANVIDCONTEXT"}],
+          "output_count": 1,
+          "evidence": {"path": "nodes.py", "symbol": "WanVideoContextOptions", "lines": "1894-1912"}
+        },
+        {
+          "class": "WanVideoSamplerExtraArgs",
+          "required_inputs": [],
+          "optional_inputs": [
+            {"name": "riflex_freq_index", "type": "INT"}, {"name": "feta_args", "type": "FETAARGS"},
+            {"name": "context_options", "type": "WANVIDCONTEXT"}, {"name": "cache_args", "type": "CACHEARGS"},
+            {"name": "slg_args", "type": "SLGARGS"}, {"name": "rope_function", "type": "COMBO"},
+            {"name": "loop_args", "type": "LOOPARGS"}, {"name": "experimental_args", "type": "EXPERIMENTALARGS"},
+            {"name": "unianimate_poses", "type": "UNIANIMATE_POSE"},
+            {"name": "fantasytalking_embeds", "type": "FANTASYTALKING_EMBEDS"},
+            {"name": "uni3c_embeds", "type": "UNI3C_EMBEDS"}, {"name": "multitalk_embeds", "type": "MULTITALK_EMBEDS"}
+          ],
+          "schema_order": ["riflex_freq_index", "feta_args", "context_options", "cache_args", "slg_args", "rope_function", "loop_args", "experimental_args", "unianimate_poses", "fantasytalking_embeds", "uni3c_embeds", "multitalk_embeds"],
+          "outputs": [{"index": 0, "name": "extra_args", "type": "WANVIDSAMPLEREXTRAARGS"}],
+          "output_count": 1,
+          "evidence": {"path": "nodes_sampler.py", "symbol": "WanVideoSamplerExtraArgs", "lines": "2673-2699"}
+        },
+        {
+          "class": "WanVideoSamplerv2",
+          "required_inputs": [
+            {"name": "model", "type": "WANVIDEOMODEL"}, {"name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS"},
+            {"name": "cfg", "type": "FLOAT"}, {"name": "seed", "type": "INT"},
+            {"name": "force_offload", "type": "BOOLEAN"}, {"name": "scheduler", "type": "WANVIDEOSCHEDULER"}
+          ],
+          "optional_inputs": [
+            {"name": "text_embeds", "type": "WANVIDEOTEXTEMBEDS"}, {"name": "samples", "type": "LATENT"},
+            {"name": "add_noise_to_samples", "type": "BOOLEAN"}, {"name": "extra_args", "type": "WANVIDSAMPLEREXTRAARGS"}
+          ],
+          "schema_order": ["model", "image_embeds", "cfg", "seed", "force_offload", "scheduler", "text_embeds", "samples", "add_noise_to_samples", "extra_args"],
+          "outputs": [{"index": 0, "name": "samples", "type": "LATENT"}, {"index": 1, "name": "denoised_samples", "type": "LATENT"}],
+          "output_count": 2,
+          "evidence": {"path": "nodes_sampler.py", "symbol": "WanVideoSamplerv2", "lines": "37-76,2703-2732"}
+        },
+        {
+          "class": "WanVideoEmptyEmbeds",
+          "required_inputs": [{"name": "width", "type": "INT"}, {"name": "height", "type": "INT"}, {"name": "num_frames", "type": "INT"}],
+          "optional_inputs": [{"name": "control_embeds", "type": "WANVIDIMAGE_EMBEDS"}, {"name": "extra_latents", "type": "LATENT"}],
+          "schema_order": ["width", "height", "num_frames", "control_embeds", "extra_latents"],
+          "outputs": [{"index": 0, "name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS"}],
+          "output_count": 1,
+          "evidence": {"path": "nodes.py", "symbol": "WanVideoEmptyEmbeds", "lines": "1411-1426"}
+        },
+        {
+          "class": "WanVideoClipVisionEncode",
+          "required_inputs": [
+            {"name": "clip_vision", "type": "CLIP_VISION"}, {"name": "image_1", "type": "IMAGE"},
+            {"name": "strength_1", "type": "FLOAT"}, {"name": "strength_2", "type": "FLOAT"},
+            {"name": "crop", "type": "COMBO"}, {"name": "combine_embeds", "type": "COMBO"},
+            {"name": "force_offload", "type": "BOOLEAN"}
+          ],
+          "optional_inputs": [
+            {"name": "image_2", "type": "IMAGE"}, {"name": "negative_image", "type": "IMAGE"},
+            {"name": "tiles", "type": "INT"}, {"name": "ratio", "type": "FLOAT"}
+          ],
+          "schema_order": ["clip_vision", "image_1", "strength_1", "strength_2", "crop", "combine_embeds", "force_offload", "image_2", "negative_image", "tiles", "ratio"],
+          "outputs": [{"index": 0, "name": "image_embeds", "type": "WANVIDIMAGE_CLIPEMBEDS"}],
+          "output_count": 1,
+          "evidence": {"path": "nodes.py", "symbol": "WanVideoClipVisionEncode", "lines": "611-632"}
+        },
+        {
+          "class": "WanVideoEncode",
+          "required_inputs": [
+            {"name": "vae", "type": "WANVAE"}, {"name": "image", "type": "IMAGE"},
+            {"name": "enable_vae_tiling", "type": "BOOLEAN"}, {"name": "tile_x", "type": "INT"},
+            {"name": "tile_y", "type": "INT"}, {"name": "tile_stride_x", "type": "INT"},
+            {"name": "tile_stride_y", "type": "INT"}
+          ],
+          "optional_inputs": [{"name": "noise_aug_strength", "type": "FLOAT"}, {"name": "latent_strength", "type": "FLOAT"}, {"name": "mask", "type": "MASK"}],
+          "schema_order": ["vae", "image", "enable_vae_tiling", "tile_x", "tile_y", "tile_stride_x", "tile_stride_y", "noise_aug_strength", "latent_strength", "mask"],
+          "outputs": [{"index": 0, "name": "samples", "type": "LATENT"}],
+          "output_count": 1,
+          "evidence": {"path": "nodes.py", "symbol": "WanVideoEncode", "lines": "2234-2254"}
+        },
+        {
+          "class": "WanVideoAddSCAILReferenceEmbeds",
+          "required_inputs": [
+            {"name": "embeds", "type": "WANVIDIMAGE_EMBEDS"}, {"name": "vae", "type": "WANVAE"},
+            {"name": "ref_image", "type": "IMAGE"}, {"name": "strength", "type": "FLOAT"},
+            {"name": "start_percent", "type": "FLOAT"}, {"name": "end_percent", "type": "FLOAT"}
+          ],
+          "optional_inputs": [{"name": "clip_embeds", "type": "WANVIDIMAGE_CLIPEMBEDS"}],
+          "schema_order": ["embeds", "vae", "ref_image", "strength", "start_percent", "end_percent", "clip_embeds"],
+          "outputs": [{"index": 0, "name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS"}],
+          "output_count": 1,
+          "evidence": {"path": "SCAIL/nodes.py", "symbol": "WanVideoAddSCAILReferenceEmbeds", "lines": "8-25"}
+        },
+        {
+          "class": "WanVideoAddSCAILPoseEmbeds",
+          "required_inputs": [
+            {"name": "embeds", "type": "WANVIDIMAGE_EMBEDS"}, {"name": "vae", "type": "WANVAE"},
+            {"name": "pose_images", "type": "IMAGE"}, {"name": "strength", "type": "FLOAT"},
+            {"name": "start_percent", "type": "FLOAT"}, {"name": "end_percent", "type": "FLOAT"}
+          ],
+          "optional_inputs": [],
+          "schema_order": ["embeds", "vae", "pose_images", "strength", "start_percent", "end_percent"],
+          "outputs": [{"index": 0, "name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS"}],
+          "output_count": 1,
+          "evidence": {"path": "SCAIL/nodes.py", "symbol": "WanVideoAddSCAILPoseEmbeds", "lines": "50-64"}
+        }
+      ]
+    },
+    {
+      "family": "rookiestar28-scail2",
+      "revision": "ef95cfa0ee\u00669b5bc8704aec6b7d5963d23ad02a9",
+      "origin": "https://github.com/rookiestar28/ComfyUI-WanVideoWrapper.git",
+      "nodes": [
+        {
+          "class": "WanVideoContextOptions",
+          "required_inputs": [{"name": "context_schedule", "type": "COMBO"}, {"name": "context_frames", "type": "INT"}, {"name": "context_stride", "type": "INT"}, {"name": "context_overlap", "type": "INT"}, {"name": "freenoise", "type": "BOOLEAN"}, {"name": "verbose", "type": "BOOLEAN"}],
+          "optional_inputs": [{"name": "fuse_method", "type": "COMBO"}, {"name": "reference_latent", "type": "LATENT"}],
+          "schema_order": ["context_schedule", "context_frames", "context_stride", "context_overlap", "freenoise", "verbose", "fuse_method", "reference_latent"],
+          "outputs": [{"index": 0, "name": "context_options", "type": "WANVIDCONTEXT"}], "output_count": 1,
+          "evidence": {"path": "nodes.py", "symbol": "WanVideoContextOptions", "lines": "1896-1914"}
+        },
+        {
+          "class": "WanVideoSamplerExtraArgs",
+          "required_inputs": [],
+          "optional_inputs": [{"name": "riflex_freq_index", "type": "INT"}, {"name": "feta_args", "type": "FETAARGS"}, {"name": "context_options", "type": "WANVIDCONTEXT"}, {"name": "cache_args", "type": "CACHEARGS"}, {"name": "slg_args", "type": "SLGARGS"}, {"name": "rope_function", "type": "COMBO"}, {"name": "loop_args", "type": "LOOPARGS"}, {"name": "experimental_args", "type": "EXPERIMENTALARGS"}, {"name": "unianimate_poses", "type": "UNIANIMATE_POSE"}, {"name": "fantasytalking_embeds", "type": "FANTASYTALKING_EMBEDS"}, {"name": "uni3c_embeds", "type": "UNI3C_EMBEDS"}, {"name": "multitalk_embeds", "type": "MULTITALK_EMBEDS"}],
+          "schema_order": ["riflex_freq_index", "feta_args", "context_options", "cache_args", "slg_args", "rope_function", "loop_args", "experimental_args", "unianimate_poses", "fantasytalking_embeds", "uni3c_embeds", "multitalk_embeds"],
+          "outputs": [{"index": 0, "name": "extra_args", "type": "WANVIDSAMPLEREXTRAARGS"}], "output_count": 1,
+          "evidence": {"path": "nodes_sampler.py", "symbol": "WanVideoSamplerExtraArgs", "lines": "2720-2746"}
+        },
+        {
+          "class": "WanVideoSamplerv2",
+          "required_inputs": [{"name": "model", "type": "WANVIDEOMODEL"}, {"name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS"}, {"name": "cfg", "type": "FLOAT"}, {"name": "seed", "type": "INT"}, {"name": "force_offload", "type": "BOOLEAN"}, {"name": "scheduler", "type": "WANVIDEOSCHEDULER"}],
+          "optional_inputs": [{"name": "text_embeds", "type": "WANVIDEOTEXTEMBEDS"}, {"name": "samples", "type": "LATENT"}, {"name": "add_noise_to_samples", "type": "BOOLEAN"}, {"name": "extra_args", "type": "WANVIDSAMPLEREXTRAARGS"}],
+          "schema_order": ["model", "image_embeds", "cfg", "seed", "force_offload", "scheduler", "text_embeds", "samples", "add_noise_to_samples", "extra_args"],
+          "outputs": [{"index": 0, "name": "samples", "type": "LATENT"}, {"index": 1, "name": "denoised_samples", "type": "LATENT"}], "output_count": 2,
+          "evidence": {"path": "nodes_sampler.py", "symbol": "WanVideoSamplerv2", "lines": "48-87,2750-2779"}
+        },
+        {
+          "class": "WanVideoEmptyEmbeds",
+          "required_inputs": [{"name": "width", "type": "INT"}, {"name": "height", "type": "INT"}, {"name": "num_frames", "type": "INT"}],
+          "optional_inputs": [{"name": "control_embeds", "type": "WANVIDIMAGE_EMBEDS"}, {"name": "extra_latents", "type": "LATENT"}],
+          "schema_order": ["width", "height", "num_frames", "control_embeds", "extra_latents"],
+          "outputs": [{"index": 0, "name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS"}], "output_count": 1,
+          "evidence": {"path": "nodes.py", "symbol": "WanVideoEmptyEmbeds", "lines": "1413-1428"}
+        },
+        {
+          "class": "WanVideoClipVisionEncode",
+          "required_inputs": [{"name": "clip_vision", "type": "CLIP_VISION"}, {"name": "image_1", "type": "IMAGE"}, {"name": "strength_1", "type": "FLOAT"}, {"name": "strength_2", "type": "FLOAT"}, {"name": "crop", "type": "COMBO"}, {"name": "combine_embeds", "type": "COMBO"}, {"name": "force_offload", "type": "BOOLEAN"}],
+          "optional_inputs": [{"name": "image_2", "type": "IMAGE"}, {"name": "negative_image", "type": "IMAGE"}, {"name": "tiles", "type": "INT"}, {"name": "ratio", "type": "FLOAT"}],
+          "schema_order": ["clip_vision", "image_1", "strength_1", "strength_2", "crop", "combine_embeds", "force_offload", "image_2", "negative_image", "tiles", "ratio"],
+          "outputs": [{"index": 0, "name": "image_embeds", "type": "WANVIDIMAGE_CLIPEMBEDS"}], "output_count": 1,
+          "evidence": {"path": "nodes.py", "symbol": "WanVideoClipVisionEncode", "lines": "613-634"}
+        },
+        {
+          "class": "WanVideoEncode",
+          "required_inputs": [{"name": "vae", "type": "WANVAE"}, {"name": "driving_video", "type": "IMAGE"}, {"name": "enable_vae_tiling", "type": "BOOLEAN"}, {"name": "tile_x", "type": "INT"}, {"name": "tile_y", "type": "INT"}, {"name": "tile_stride_x", "type": "INT"}, {"name": "tile_stride_y", "type": "INT"}],
+          "optional_inputs": [{"name": "noise_aug_strength", "type": "FLOAT"}, {"name": "latent_strength", "type": "FLOAT"}, {"name": "mask", "type": "MASK"}],
+          "schema_order": ["vae", "driving_video", "enable_vae_tiling", "tile_x", "tile_y", "tile_stride_x", "tile_stride_y", "noise_aug_strength", "latent_strength", "mask"],
+          "outputs": [{"index": 0, "name": "samples", "type": "LATENT"}], "output_count": 1,
+          "evidence": {"path": "nodes.py", "symbol": "WanVideoEncode", "lines": "2236-2256,2260-2268,2303"}
+        },
+        {
+          "class": "WanVideoAddSCAIL2ConditionEmbeds",
+          "required_inputs": [{"name": "embeds", "type": "WANVIDIMAGE_EMBEDS"}, {"name": "condition", "type": "SCAIL2_WANVIDEO_PAYLOAD"}, {"name": "vae", "type": "WANVAE"}, {"name": "ref_image_strength", "type": "FLOAT"}, {"name": "ref_mask_strength", "type": "FLOAT"}, {"name": "condition_video_strength", "type": "FLOAT"}, {"name": "driving_mask_strength", "type": "FLOAT"}],
+          "optional_inputs": [{"name": "clip_embeds", "type": "WANVIDIMAGE_CLIPEMBEDS"}],
+          "schema_order": ["embeds", "condition", "vae", "ref_image_strength", "ref_mask_strength", "condition_video_strength", "driving_mask_strength", "clip_embeds"],
+          "outputs": [{"index": 0, "name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS"}], "output_count": 1,
+          "evidence": {"path": "SCAIL/nodes.py", "symbol": "WanVideoAddSCAIL2ConditionEmbeds", "lines": "275-293,401-415"}
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema": "scail_pose2.static_regression_fixture.v1",
+  "execution": "never",
+  "nodes": [
+    {"id": 10, "type": "FixtureWidgetName", "widgets_values": ["width"]},
+    {"id": 11, "type": "FixtureWidgetName", "widgets_values": ["height"]},
+    {"id": 12, "type": "FixtureWidgetName", "widgets_values": ["gen_width"]},
+    {"id": 13, "type": "FixtureWidgetName", "widgets_values": ["gen_height"]},
+    {"id": 14, "type": "SCAILPose2ColoredMask", "widgets_values": []},
+    {"id": 15, "type": "NLFPredictPoses", "widgets_values": []},
+    {
+      "id": 362,
+      "type": "RenderNLFPoses",
+      "inputs": [
+        {"name": "render_width", "link": 100},
+        {"name": "render_height", "link": 101},
+        {"name": "pose_video_mask", "link": 104},
+        {"name": "bboxes", "link": 105}
+      ],
+      "widgets_values": []
+    },
+    {
+      "id": 400,
+      "type": "SCAILPose2SCAIL2Condition",
+      "inputs": [
+        {"name": "width", "link": 102},
+        {"name": "height", "link": 103}
+      ],
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [100, 10, 0, 362, 0, "INT"],
+    [101, 11, 0, 362, 1, "INT"],
+    [102, 12, 0, 400, 0, "INT"],
+    [103, 13, 0, 400, 1, "INT"],
+    [104, 14, 0, 362, 2, "IMAGE"],
+    [105, 15, 0, 362, 3, "BBOX"]
+  ]
+}

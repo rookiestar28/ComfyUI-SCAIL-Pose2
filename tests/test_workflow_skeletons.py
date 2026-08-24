@@ -11,15 +11,21 @@ from scail2.workflow_static import diagnose_render_nlf_connections
 
 ROOT = Path(__file__).resolve().parents[1]
 SKELETON_DIR = ROOT / "workflow_skeletons"
-EXAMPLE_WORKFLOW = ROOT / "wanvideo_2_1_14B_SCAIL2_replacement_and_animate_dual_mode_example_01.json"
+RENDER_NLF_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_contracts"
+    / "render_nlf_connection_regression.json"
+)
 
 
 def load_skeleton(name: str):
     return json.loads((SKELETON_DIR / name).read_text(encoding="utf-8"))
 
 
-def load_example_workflow():
-    return json.loads(EXAMPLE_WORKFLOW.read_text(encoding="utf-8"))
+def load_render_nlf_fixture():
+    return json.loads(RENDER_NLF_FIXTURE.read_text(encoding="utf-8"))
 
 
 class WorkflowSkeletonTests(unittest.TestCase):
@@ -85,8 +91,8 @@ class WorkflowSkeletonTests(unittest.TestCase):
             nlf_render["geometry_contract"]["multi_person_identity_composition"],
         )
 
-    def test_example_workflow_render_and_condition_dimensions_are_split(self) -> None:
-        workflow = load_example_workflow()
+    def test_render_nlf_fixture_render_and_condition_dimensions_are_split(self) -> None:
+        workflow = load_render_nlf_fixture()
         node_by_id = {int(node["id"]): node for node in workflow["nodes"]}
         link_by_id = {int(link[0]): link for link in workflow["links"]}
 
@@ -121,8 +127,8 @@ class WorkflowSkeletonTests(unittest.TestCase):
             source_node_for_input(render, "pose_video_mask")["type"],
         )
 
-    def test_example_workflow_reports_render_nlf_bbox_and_mask_connections(self) -> None:
-        diagnostics = diagnose_render_nlf_connections(load_example_workflow())
+    def test_render_nlf_fixture_reports_bbox_and_mask_connections(self) -> None:
+        diagnostics = diagnose_render_nlf_connections(load_render_nlf_fixture())
 
         self.assertEqual(1, diagnostics.render_node_count)
         self.assertEqual(("362",), diagnostics.render_node_ids)
@@ -130,6 +136,23 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertTrue(diagnostics.pose_video_mask_connected)
         self.assertIn("bboxes_connected=True", diagnostics.summary())
         self.assertIn("pose_video_mask_connected=True", diagnostics.summary())
+
+    def test_render_nlf_regression_fixture_is_static_and_public_safe(self) -> None:
+        fixture = load_render_nlf_fixture()
+        text = RENDER_NLF_FIXTURE.read_text(encoding="utf-8")
+
+        self.assertEqual("scail_pose2.static_regression_fixture.v1", fixture["schema"])
+        self.assertEqual("never", fixture["execution"])
+        for forbidden in (
+            "prompt",
+            "model_name",
+            "reference/",
+            ".planning",
+            "api_key",
+            "token=",
+        ):
+            self.assertNotIn(forbidden, text)
+        self.assertIsNone(re.search(r"[A-Za-z]:\\\\", text))
 
     def test_render_nlf_static_diagnostics_reports_missing_mask_connection(self) -> None:
         workflow = {
