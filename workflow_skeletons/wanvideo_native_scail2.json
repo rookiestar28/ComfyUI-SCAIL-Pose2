@@ -1,146 +1,164 @@
 {
   "schema": "scail_pose2.workflow_skeleton.v1",
-  "title": "Native SCAIL-2 To WanVideoWrapper Skeleton",
+  "title": "Native SCAIL-2 Animation To WanVideoWrapper Skeleton",
   "execution": "static_only",
   "live_generation": "deferred",
+  "host": {
+    "family": "rookiestar28-scail2",
+    "revision": "ef95cfa0eef9b5bc8704aec6b7d5963d23ad02a\u0039"
+  },
+  "classification": {
+    "mode": "animation",
+    "contract": "static_full_topology",
+    "host_validator_fixture": "tests/fixtures/workflow_contracts/native_animation_host_contract.json",
+    "external_inputs_are_placeholders": true
+  },
+  "contract_defaults": {
+    "width": 512,
+    "height": 512,
+    "num_frames": 81,
+    "context_frames": 81,
+    "context_stride": 1,
+    "context_overlap": 16
+  },
   "nodes": [
     {
       "id": "workflow_inputs",
       "class_type": "ExternalWorkflowInputs",
-      "role": "user_supplied_driving_video_tracks_models_and_prompts"
+      "role": "user_supplied_rgb_reference_models_text_vae_scheduler_and_dimensions",
+      "outputs": [
+        {"name": "driving_video", "type": "IMAGE"},
+        {"name": "reference_image", "type": "IMAGE"},
+        {"name": "reference_mask", "type": "MASK"},
+        {"name": "model", "type": "WANVIDEOMODEL"},
+        {"name": "text_embeds", "type": "WANVIDEOTEXTEMBEDS"},
+        {"name": "vae", "type": "WANVAE"},
+        {"name": "scheduler", "type": "WANVIDEOSCHEDULER"},
+        {"name": "width", "type": "INT"},
+        {"name": "height", "type": "INT"},
+        {"name": "num_frames", "type": "INT"}
+      ]
     },
     {
       "id": "sam3_video_track",
       "class_type": "SAM3_VideoTrack",
       "display_name": "SAM3 Video Track",
-      "role": "comfyui_builtin_sam3_video_track",
-      "outputs": [
-        { "name": "track_data", "type": "SAM3_TRACK_DATA" }
-      ]
+      "role": "driving_video_subject_tracking",
+      "outputs": [{"name": "track_data", "type": "SAM3_TRACK_DATA"}]
     },
     {
       "id": "colored_masks",
       "class_type": "SCAILPose2ColoredMask",
-      "role": "sam3_track_colored_mask_creation",
+      "role": "driving_and_reference_semantic_mask_creation",
+      "inputs": {"object_indices": "", "sort_by": "left_to_right"},
       "identity_palette": ["blue", "red", "green", "magenta", "cyan", "yellow"],
-      "identity_order_source": "selected_object_order_after_sort_and_object_indices_filter",
       "outputs": [
-        { "name": "pose_video_mask", "type": "IMAGE" },
-        { "name": "reference_image_mask", "type": "IMAGE" }
+        {"name": "pose_video_mask", "type": "IMAGE"},
+        {"name": "reference_image_mask", "type": "IMAGE"}
       ]
     },
     {
       "id": "scail2_condition",
       "class_type": "SCAILPose2SCAIL2Condition",
-      "role": "validated_scail2_condition_builder",
-      "output_type": "SCAIL2_CONDITION",
-      "input_order": ["pose_video", "driving_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"],
-      "mode_video_sources": {
-        "animation": "pose_video",
-        "replacement": "driving_video"
+      "role": "rgb_animation_and_semantic_mask_condition_builder",
+      "inputs": {
+        "mode": "animation",
+        "reference_fit_mode": "auto",
+        "reference_anchor": "auto",
+        "reference_target_frame_policy": "median_bbox",
+        "reference_control_region": "auto",
+        "reference_bbox_margin": 0,
+        "reference_max_scale": 2.0,
+        "reference_min_mask_area_ratio": 0.0005
       },
-      "identity_diagnostics": {
-        "reported_in_condition": true,
-        "reported_in_adapter_payload_schema": true,
-        "under_provisioned_references": "warning_only"
-      }
+      "output_type": "SCAIL2_CONDITION",
+      "mode_video_sources": {"animation": "pose_video", "replacement": "driving_video"}
     },
     {
       "id": "wanvideo_scail2_adapter",
       "class_type": "SCAILPose2WanVideoSCAIL2Adapter",
       "role": "wanvideo_wrapper_scail2_payload_contract",
+      "inputs": {"degrade_to_v1": false, "allow_degradation": false},
       "output_type": "SCAIL2_WANVIDEO_PAYLOAD",
-      "output_name": "condition",
-      "degrade_to_v1_default": false,
-      "allow_degradation_default": false
+      "output_name": "condition"
     },
     {
       "id": "wan_empty_embeds",
       "class_type": "WanVideoEmptyEmbeds",
-      "role": "wrapper_base_embeds",
+      "role": "wrapper_base_animation_embeds",
       "output_type": "WANVIDIMAGE_EMBEDS"
     },
     {
       "id": "wan_scail2_condition_embeds",
       "class_type": "WanVideoAddSCAIL2ConditionEmbeds",
-      "role": "wrapper_native_scail2_embeds",
-      "input_type": "SCAIL2_WANVIDEO_PAYLOAD",
-      "output_type": "WANVIDIMAGE_EMBEDS",
-      "embeds_key": "scail2_embeds",
-      "strength_defaults": {
+      "role": "fork_native_scail2_embeds",
+      "inputs": {
         "ref_image_strength": 1.0,
         "ref_mask_strength": 1.0,
         "condition_video_strength": 1.0,
         "driving_mask_strength": 1.0
-      }
+      },
+      "output_type": "WANVIDIMAGE_EMBEDS",
+      "embeds_key": "scail2_embeds"
     },
     {
       "id": "wan_context_options",
       "class_type": "WanVideoContextOptions",
       "role": "wrapper_context_window_owner",
-      "output_type": "WANVIDCONTEXT",
-      "optional": true,
-      "owns": ["context_frames", "context_stride", "context_overlap"]
+      "inputs": {
+        "context_schedule": "uniform_standard",
+        "context_frames": 81,
+        "context_stride": 1,
+        "context_overlap": 16,
+        "freenoise": true,
+        "verbose": false
+      },
+      "output_type": "WANVIDCONTEXT"
+    },
+    {
+      "id": "wan_sampler_extra_args",
+      "class_type": "WanVideoSamplerExtraArgs",
+      "role": "context_to_sampler_v2_adapter",
+      "output_type": "WANVIDSAMPLEREXTRAARGS"
     },
     {
       "id": "wan_sampler",
       "class_type": "WanVideoSamplerv2",
       "role": "wrapper_sampler",
-      "input_type": "WANVIDIMAGE_EMBEDS"
+      "inputs": {"cfg": 5.0, "seed": 0, "force_offload": true}
     }
   ],
   "links": [
-    {
-      "from": ["workflow_inputs", "driving_video"],
-      "to": ["sam3_video_track", "images"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["sam3_video_track", "track_data"],
-      "to": ["colored_masks", "driving_track_data"],
-      "type": "SAM3_TRACK_DATA"
-    },
-    {
-      "from": ["colored_masks", "pose_video_mask"],
-      "to": ["scail2_condition", "pose_video_mask"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["colored_masks", "reference_image_mask"],
-      "to": ["scail2_condition", "ref_mask"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["scail2_condition", "condition"],
-      "to": ["wanvideo_scail2_adapter", "condition"],
-      "type": "SCAIL2_CONDITION"
-    },
-    {
-      "from": ["wanvideo_scail2_adapter", "condition"],
-      "to": ["wan_scail2_condition_embeds", "condition"],
-      "type": "SCAIL2_WANVIDEO_PAYLOAD"
-    },
-    {
-      "from": ["wan_empty_embeds", "image_embeds"],
-      "to": ["wan_scail2_condition_embeds", "embeds"],
-      "type": "WANVIDIMAGE_EMBEDS"
-    },
-    {
-      "from": ["wan_scail2_condition_embeds", "image_embeds"],
-      "to": ["wan_sampler", "image_embeds"],
-      "type": "WANVIDIMAGE_EMBEDS"
-    },
-    {
-      "from": ["wan_context_options", "context_options"],
-      "to": ["wan_sampler", "context_options"],
-      "type": "WANVIDCONTEXT",
-      "optional": true
-    }
+    {"from": ["workflow_inputs", "driving_video"], "to": ["sam3_video_track", "images"], "type": "IMAGE"},
+    {"from": ["workflow_inputs", "driving_video"], "to": ["scail2_condition", "pose_video"], "type": "IMAGE"},
+    {"from": ["workflow_inputs", "reference_image"], "to": ["scail2_condition", "ref_image"], "type": "IMAGE"},
+    {"from": ["workflow_inputs", "reference_mask"], "to": ["colored_masks", "ref_mask"], "type": "MASK"},
+    {"from": ["sam3_video_track", "track_data"], "to": ["colored_masks", "driving_track_data"], "type": "SAM3_TRACK_DATA"},
+    {"from": ["colored_masks", "pose_video_mask"], "to": ["scail2_condition", "pose_video_mask"], "type": "IMAGE"},
+    {"from": ["colored_masks", "reference_image_mask"], "to": ["scail2_condition", "ref_mask"], "type": "IMAGE"},
+    {"from": ["workflow_inputs", "width"], "to": ["scail2_condition", "width"], "type": "INT"},
+    {"from": ["workflow_inputs", "height"], "to": ["scail2_condition", "height"], "type": "INT"},
+    {"from": ["workflow_inputs", "num_frames"], "to": ["scail2_condition", "num_frames"], "type": "INT"},
+    {"from": ["scail2_condition", "condition"], "to": ["wanvideo_scail2_adapter", "condition"], "type": "SCAIL2_CONDITION"},
+    {"from": ["workflow_inputs", "width"], "to": ["wan_empty_embeds", "width"], "type": "INT"},
+    {"from": ["workflow_inputs", "height"], "to": ["wan_empty_embeds", "height"], "type": "INT"},
+    {"from": ["workflow_inputs", "num_frames"], "to": ["wan_empty_embeds", "num_frames"], "type": "INT"},
+    {"from": ["wan_empty_embeds", "image_embeds"], "to": ["wan_scail2_condition_embeds", "embeds"], "type": "WANVIDIMAGE_EMBEDS"},
+    {"from": ["wanvideo_scail2_adapter", "condition"], "to": ["wan_scail2_condition_embeds", "condition"], "type": "SCAIL2_WANVIDEO_PAYLOAD"},
+    {"from": ["workflow_inputs", "vae"], "to": ["wan_scail2_condition_embeds", "vae"], "type": "WANVAE"},
+    {"from": ["wan_scail2_condition_embeds", "image_embeds"], "to": ["wan_sampler", "image_embeds"], "type": "WANVIDIMAGE_EMBEDS"},
+    {"from": ["workflow_inputs", "model"], "to": ["wan_sampler", "model"], "type": "WANVIDEOMODEL"},
+    {"from": ["workflow_inputs", "text_embeds"], "to": ["wan_sampler", "text_embeds"], "type": "WANVIDEOTEXTEMBEDS"},
+    {"from": ["workflow_inputs", "scheduler"], "to": ["wan_sampler", "scheduler"], "type": "WANVIDEOSCHEDULER"},
+    {"from": ["wan_context_options", "context_options"], "to": ["wan_sampler_extra_args", "context_options"], "type": "WANVIDCONTEXT"},
+    {"from": ["wan_sampler_extra_args", "extra_args"], "to": ["wan_sampler", "extra_args"], "type": "WANVIDSAMPLEREXTRAARGS"}
   ],
   "context": {
     "owner": "ComfyUI-WanVideoWrapper",
     "owner_node": "WanVideoContextOptions",
-    "sampler_socket": "context_options",
+    "adapter_input_socket": "context_options",
+    "sampler_socket": "extra_args",
+    "route": "WanVideoContextOptions.context_options -> WanVideoSamplerExtraArgs.context_options -> WanVideoSamplerv2.extra_args",
     "controls": ["context_frames", "context_stride", "context_overlap"],
     "scail2_condition_segment_controls": false,
     "official_scail2_clean_history_claimed": false
@@ -152,12 +170,7 @@
     "output_type": "WANVIDIMAGE_EMBEDS",
     "embeds_key": "scail2_embeds",
     "strength_defaults_are_backward_compatible": true,
-    "strength_controls": [
-      "ref_image_strength",
-      "ref_mask_strength",
-      "condition_video_strength",
-      "driving_mask_strength"
-    ],
+    "strength_controls": ["ref_image_strength", "ref_mask_strength", "condition_video_strength", "driving_mask_strength"],
     "legacy_embeds_key": "scail_embeds",
     "simultaneous_legacy_and_native": "reject"
   },
@@ -173,8 +186,8 @@
     "requires_explicit_enable": true
   },
   "warnings": [
-    "This static skeleton documents native SCAIL-2 wiring and does not execute generation.",
-    "Live inference still requires a compatible WanVideoWrapper build, Wan model assets, VAE, text embeds, scheduler, and user runtime configuration.",
-    "Use the v1 fallback only when accepting documented semantic losses."
+    "This file is a static topology contract, not an importable ComfyUI workflow.",
+    "ExternalWorkflowInputs values must be supplied by a compatible runtime workflow.",
+    "Live generation requires compatible host nodes and user-selected model assets."
   ]
 }

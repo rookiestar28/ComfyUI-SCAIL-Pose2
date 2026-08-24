@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 import unittest
 from pathlib import Path
 
 from scail2 import wanvideo_contracts
+from scail2.workflow_contract_validator import (
+    inspect_workflow_contract,
+    load_contract_manifest,
+    validate_workflow_contract,
+)
 from scail2.workflow_static import diagnose_render_nlf_connections
 
 
@@ -18,6 +24,37 @@ RENDER_NLF_FIXTURE = (
     / "workflow_contracts"
     / "render_nlf_connection_regression.json"
 )
+NATIVE_ANIMATION_CONTRACT_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_contracts"
+    / "native_animation_host_contract.json"
+)
+NATIVE_ANIMATION_FORBIDDEN_CLASSES = {
+    "RenderNLFPoses",
+    "NLFPredictPoses",
+    "SCAILPose2PoseMaskGeometryAlign",
+    "SCAILPose2ReplacementDenoiseMask",
+    "SCAILPose2ReplacementConditionVideo",
+}
+NATIVE_ANIMATION_REQUIRED_LINKS = {
+    (("workflow_inputs", "driving_video"), ("sam3_video_track", "images"), "IMAGE"),
+    (
+        ("sam3_video_track", "track_data"),
+        ("colored_masks", "driving_track_data"),
+        "SAM3_TRACK_DATA",
+    ),
+    (("workflow_inputs", "driving_video"), ("scail2_condition", "pose_video"), "IMAGE"),
+    (("workflow_inputs", "reference_image"), ("scail2_condition", "ref_image"), "IMAGE"),
+    (("workflow_inputs", "reference_mask"), ("colored_masks", "ref_mask"), "MASK"),
+    (("colored_masks", "pose_video_mask"), ("scail2_condition", "pose_video_mask"), "IMAGE"),
+    (("colored_masks", "reference_image_mask"), ("scail2_condition", "ref_mask"), "IMAGE"),
+    (("scail2_condition", "condition"), ("wanvideo_scail2_adapter", "condition"), "SCAIL2_CONDITION"),
+    (("wanvideo_scail2_adapter", "condition"), ("wan_scail2_condition_embeds", "condition"), "SCAIL2_WANVIDEO_PAYLOAD"),
+    (("wan_context_options", "context_options"), ("wan_sampler_extra_args", "context_options"), "WANVIDCONTEXT"),
+    (("wan_sampler_extra_args", "extra_args"), ("wan_sampler", "extra_args"), "WANVIDSAMPLEREXTRAARGS"),
+}
 
 
 def load_skeleton(name: str):
@@ -26,6 +63,23 @@ def load_skeleton(name: str):
 
 def load_render_nlf_fixture():
     return json.loads(RENDER_NLF_FIXTURE.read_text(encoding="utf-8"))
+
+
+def load_native_animation_contract_fixture():
+    return json.loads(NATIVE_ANIMATION_CONTRACT_FIXTURE.read_text(encoding="utf-8"))
+
+
+def native_animation_forbidden_classes(data):
+    classes = {node.get("class_type") for node in data.get("nodes", [])}
+    return tuple(sorted(classes & NATIVE_ANIMATION_FORBIDDEN_CLASSES))
+
+
+def native_animation_missing_links(data):
+    links = {
+        (tuple(link["from"]), tuple(link["to"]), link["type"])
+        for link in data.get("links", [])
+    }
+    return tuple(sorted(NATIVE_ANIMATION_REQUIRED_LINKS - links))
 
 
 class WorkflowSkeletonTests(unittest.TestCase):
@@ -331,6 +385,18 @@ class WorkflowSkeletonTests(unittest.TestCase):
         data = load_skeleton("wanvideo_native_scail2.json")
         class_types = {node.get("class_type") for node in data["nodes"]}
         links = {(tuple(link["from"]), tuple(link["to"]), link["type"]) for link in data["links"]}
+        manifest = load_contract_manifest()
+        fork = next(
+            family
+            for family in manifest.families
+            if family.family_id == "rookiestar28-scail2"
+        )
+
+        self.assertEqual("static_only", data["execution"])
+        self.assertEqual("rookiestar28-scail2", data["host"]["family"])
+        self.assertEqual(fork.revision, data["host"]["revision"])
+        self.assertEqual((), native_animation_forbidden_classes(data))
+        self.assertEqual((), native_animation_missing_links(data))
 
         self.assertTrue(
             {
@@ -340,6 +406,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
                 "SCAILPose2WanVideoSCAIL2Adapter",
                 "WanVideoAddSCAIL2ConditionEmbeds",
                 "WanVideoContextOptions",
+                "WanVideoSamplerExtraArgs",
                 wanvideo_contracts.NODE_WAN_EMPTY_EMBEDS,
                 wanvideo_contracts.NODE_WAN_SAMPLER_V2,
             }.issubset(class_types)
@@ -349,6 +416,30 @@ class WorkflowSkeletonTests(unittest.TestCase):
                 ("workflow_inputs", "driving_video"),
                 ("sam3_video_track", "images"),
                 "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("workflow_inputs", "driving_video"),
+                ("scail2_condition", "pose_video"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("workflow_inputs", "reference_image"),
+                ("scail2_condition", "ref_image"),
+                "IMAGE",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("workflow_inputs", "reference_mask"),
+                ("colored_masks", "ref_mask"),
+                "MASK",
             ),
             links,
         )
@@ -387,15 +478,53 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertIn(
             (
                 ("wan_context_options", "context_options"),
+                ("wan_sampler_extra_args", "context_options"),
+                "WANVIDCONTEXT",
+            ),
+            links,
+        )
+        self.assertIn(
+            (
+                ("wan_sampler_extra_args", "extra_args"),
+                ("wan_sampler", "extra_args"),
+                "WANVIDSAMPLEREXTRAARGS",
+            ),
+            links,
+        )
+        self.assertNotIn(
+            (
+                ("wan_context_options", "context_options"),
                 ("wan_sampler", "context_options"),
                 "WANVIDCONTEXT",
             ),
             links,
         )
+        for source_name, target_id, target_name, link_type in (
+            ("model", "wan_sampler", "model", "WANVIDEOMODEL"),
+            ("text_embeds", "wan_sampler", "text_embeds", "WANVIDEOTEXTEMBEDS"),
+            ("vae", "wan_scail2_condition_embeds", "vae", "WANVAE"),
+            ("scheduler", "wan_sampler", "scheduler", "WANVIDEOSCHEDULER"),
+        ):
+            self.assertIn(
+                (
+                    ("workflow_inputs", source_name),
+                    (target_id, target_name),
+                    link_type,
+                ),
+                links,
+            )
+        defaults = data["contract_defaults"]
+        self.assertEqual(512, defaults["width"])
+        self.assertEqual(512, defaults["height"])
+        self.assertEqual(81, defaults["num_frames"])
+        self.assertEqual(1, defaults["num_frames"] % 4)
+        self.assertGreaterEqual(defaults["context_frames"], 2)
+        self.assertLess(defaults["context_overlap"], defaults["context_frames"])
         context = data["context"]
         self.assertEqual("ComfyUI-WanVideoWrapper", context["owner"])
         self.assertEqual("WanVideoContextOptions", context["owner_node"])
-        self.assertEqual("context_options", context["sampler_socket"])
+        self.assertEqual("context_options", context["adapter_input_socket"])
+        self.assertEqual("extra_args", context["sampler_socket"])
         self.assertEqual(
             ["context_frames", "context_stride", "context_overlap"],
             context["controls"],
@@ -438,6 +567,81 @@ class WorkflowSkeletonTests(unittest.TestCase):
             ]
         )
         self.assertFalse(data["degradation"]["v1_fallback_is_full_scail2_parity"])
+
+    def test_native_animation_host_contract_passes_source_validator(self) -> None:
+        fixture = load_native_animation_contract_fixture()
+        result = validate_workflow_contract(fixture)
+
+        self.assertTrue(result.valid)
+        self.assertEqual((), result.diagnostics)
+        self.assertEqual("static_host_subgraph", fixture["classification"])
+        serialized = json.dumps(fixture, sort_keys=True)
+        for forbidden in (".planning", "reference/docs", "RenderNLFPoses", "prompt"):
+            self.assertNotIn(forbidden, serialized)
+        self.assertNotRegex(serialized, r"[A-Za-z]:\\")
+        self.assertNotRegex(serialized, r"\bS2W\d+\b")
+
+    def test_native_animation_contract_mutations_fail_closed(self) -> None:
+        fixture = load_native_animation_contract_fixture()
+
+        missing_model = copy.deepcopy(fixture)
+        sampler = next(node for node in missing_model["nodes"] if node["id"] == "sampler")
+        sampler["inputs"].pop("model")
+        self.assertIn(
+            "MISSING_REQUIRED_INPUT",
+            {item.code for item in inspect_workflow_contract(missing_model)},
+        )
+
+        bad_output = copy.deepcopy(fixture)
+        next(link for link in bad_output["links"] if link["to"] == ["sampler", "image_embeds"])[
+            "from"
+        ][1] = 1
+        self.assertIn(
+            "INVALID_SOURCE_OUTPUT",
+            {item.code for item in inspect_workflow_contract(bad_output)},
+        )
+
+        bad_revision = copy.deepcopy(fixture)
+        bad_revision["host"]["revision"] = "0" * 40
+        self.assertIn(
+            "UNSUPPORTED_HOST_FAMILY",
+            {item.code for item in inspect_workflow_contract(bad_revision)},
+        )
+
+    def test_native_animation_renderer_insertion_is_detected(self) -> None:
+        data = load_skeleton("wanvideo_native_scail2.json")
+        mutated = copy.deepcopy(data)
+        mutated["nodes"].append({"id": "forbidden", "class_type": "RenderNLFPoses"})
+
+        self.assertEqual(("RenderNLFPoses",), native_animation_forbidden_classes(mutated))
+
+    def test_native_animation_required_link_removal_is_detected(self) -> None:
+        data = load_skeleton("wanvideo_native_scail2.json")
+        required_targets = (
+            ("sam3_video_track", "images"),
+            ("colored_masks", "driving_track_data"),
+            ("colored_masks", "ref_mask"),
+            ("scail2_condition", "pose_video"),
+            ("scail2_condition", "ref_image"),
+            ("scail2_condition", "pose_video_mask"),
+            ("scail2_condition", "ref_mask"),
+            ("wanvideo_scail2_adapter", "condition"),
+            ("wan_scail2_condition_embeds", "condition"),
+            ("wan_sampler_extra_args", "context_options"),
+            ("wan_sampler", "extra_args"),
+        )
+
+        for target in required_targets:
+            with self.subTest(target=target):
+                mutated = copy.deepcopy(data)
+                removed = next(
+                    link for link in mutated["links"] if tuple(link["to"]) == target
+                )
+                mutated["links"].remove(removed)
+                self.assertIn(
+                    (tuple(removed["from"]), target, removed["type"]),
+                    native_animation_missing_links(mutated),
+                )
 
     def test_replacement_background_lock_skeleton_wires_samples_mask_path(self) -> None:
         data = load_skeleton("wanvideo_replacement_background_lock.json")
