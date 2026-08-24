@@ -1,13 +1,43 @@
 {
   "schema": "scail_pose2.workflow_skeleton.v1",
-  "title": "Wan SCAIL v1 Pose Control Skeleton",
+  "title": "Wan SCAIL v1 Legacy Pose Control Skeleton",
   "execution": "static_only",
   "live_generation": "deferred",
+  "host": {
+    "family": "kijai-vanilla",
+    "revision": "088128b2242\u00342e110d3906c6750e9a3a348a659b"
+  },
+  "classification": {
+    "mode": "legacy_v1_pose_control",
+    "contract": "static_full_topology",
+    "external_inputs_are_placeholders": true,
+    "render_nlf_scope": "legacy_v1_only",
+    "scail2_semantic_mask_parity": false
+  },
   "nodes": [
+    {
+      "id": "workflow_inputs",
+      "class_type": "ExternalWorkflowInputs",
+      "role": "user_supplied_nlf_reference_host_models_vae_and_dimensions",
+      "outputs": [
+        {"name": "nlf_poses", "type": "NLFPRED"},
+        {"name": "bboxes", "type": "BBOX"},
+        {"name": "pose_video_mask", "type": "IMAGE"},
+        {"name": "reference_image", "type": "IMAGE"},
+        {"name": "clip_vision", "type": "CLIP_VISION"},
+        {"name": "vae", "type": "WANVAE"},
+        {"name": "model", "type": "WANVIDEOMODEL"},
+        {"name": "text_embeds", "type": "WANVIDEOTEXTEMBEDS"},
+        {"name": "scheduler", "type": "WANVIDEOSCHEDULER"},
+        {"name": "width", "type": "INT"},
+        {"name": "height", "type": "INT"},
+        {"name": "num_frames", "type": "INT"}
+      ]
+    },
     {
       "id": "nlf_render",
       "class_type": "RenderNLFPoses",
-      "role": "pose_image_source",
+      "role": "legacy_v1_pose_image_source_only",
       "required_inputs": {
         "nlf_poses": "NLFPRED",
         "render_width": "INT",
@@ -23,22 +53,10 @@
         "pose_video_mask_priority": "valid pose_video_mask alignment is preferred; invalid masks can fall back to bbox repair",
         "multi_person_identity_composition": "semantic identity colors render and align each selected NLF person separately before compositing"
       },
-      "outputs": {
-        "image": "IMAGE",
-        "mask": "MASK"
-      }
-    },
-    {
-      "id": "workflow_inputs",
-      "class_type": "ExternalWorkflowInputs",
-      "role": "user_supplied_reference_image_and_dimensions",
-      "outputs": {
-        "ref_image": "IMAGE",
-        "clip_ref_image": "IMAGE",
-        "width": "INT",
-        "height": "INT",
-        "num_frames": "INT"
-      }
+      "outputs": [
+        {"name": "image", "type": "IMAGE"},
+        {"name": "mask", "type": "MASK"}
+      ]
     },
     {
       "id": "wan_empty_embeds",
@@ -48,75 +66,69 @@
     {
       "id": "wan_clip_vision",
       "class_type": "WanVideoClipVisionEncode",
-      "role": "optional_clip_reference"
+      "role": "enabled_clip_reference_conditioning",
+      "inputs": {
+        "strength_1": 1.0,
+        "strength_2": 1.0,
+        "crop": "center",
+        "combine_embeds": "average",
+        "force_offload": true
+      }
     },
     {
       "id": "wan_scail_reference",
       "class_type": "WanVideoAddSCAILReferenceEmbeds",
-      "role": "wrapper_reference_conditioning"
+      "role": "wrapper_legacy_reference_conditioning",
+      "inputs": {"strength": 1.0, "start_percent": 0.0, "end_percent": 1.0}
     },
     {
       "id": "wan_scail_pose",
       "class_type": "WanVideoAddSCAILPoseEmbeds",
-      "role": "wrapper_pose_conditioning"
+      "role": "wrapper_legacy_pose_conditioning",
+      "inputs": {"strength": 1.0, "start_percent": 0.0, "end_percent": 1.0}
     },
     {
       "id": "wan_sampler",
       "class_type": "WanVideoSamplerv2",
-      "role": "wrapper_sampler"
+      "role": "wrapper_sampler",
+      "inputs": {"cfg": 5.0, "seed": 0, "force_offload": true}
     }
   ],
   "links": [
-    {
-      "from": ["workflow_inputs", "width"],
-      "to": ["wan_empty_embeds", "width"],
-      "type": "INT"
-    },
-    {
-      "from": ["workflow_inputs", "height"],
-      "to": ["wan_empty_embeds", "height"],
-      "type": "INT"
-    },
-    {
-      "from": ["workflow_inputs", "num_frames"],
-      "to": ["wan_empty_embeds", "num_frames"],
-      "type": "INT"
-    },
-    {
-      "from": ["workflow_inputs", "ref_image"],
-      "to": ["wan_scail_reference", "ref_image"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["workflow_inputs", "clip_ref_image"],
-      "to": ["wan_clip_vision", "image_1"],
-      "type": "IMAGE",
-      "optional": true
-    },
-    {
-      "from": ["wan_empty_embeds", "WANVIDIMAGE_EMBEDS"],
-      "to": ["wan_scail_reference", "embeds"],
-      "type": "WANVIDIMAGE_EMBEDS"
-    },
-    {
-      "from": ["wan_scail_reference", "WANVIDIMAGE_EMBEDS"],
-      "to": ["wan_scail_pose", "embeds"],
-      "type": "WANVIDIMAGE_EMBEDS"
-    },
-    {
-      "from": ["nlf_render", "image"],
-      "to": ["wan_scail_pose", "pose_images"],
-      "type": "IMAGE"
-    },
-    {
-      "from": ["wan_scail_pose", "WANVIDIMAGE_EMBEDS"],
-      "to": ["wan_sampler", "image_embeds"],
-      "type": "WANVIDIMAGE_EMBEDS"
-    }
+    {"from": ["workflow_inputs", "nlf_poses"], "to": ["nlf_render", "nlf_poses"], "type": "NLFPRED"},
+    {"from": ["workflow_inputs", "width"], "to": ["nlf_render", "render_width"], "type": "INT"},
+    {"from": ["workflow_inputs", "height"], "to": ["nlf_render", "render_height"], "type": "INT"},
+    {"from": ["workflow_inputs", "bboxes"], "to": ["nlf_render", "bboxes"], "type": "BBOX", "optional": true},
+    {"from": ["workflow_inputs", "pose_video_mask"], "to": ["nlf_render", "pose_video_mask"], "type": "IMAGE", "optional": true},
+    {"from": ["workflow_inputs", "width"], "to": ["wan_empty_embeds", "width"], "type": "INT"},
+    {"from": ["workflow_inputs", "height"], "to": ["wan_empty_embeds", "height"], "type": "INT"},
+    {"from": ["workflow_inputs", "num_frames"], "to": ["wan_empty_embeds", "num_frames"], "type": "INT"},
+    {"from": ["workflow_inputs", "clip_vision"], "to": ["wan_clip_vision", "clip_vision"], "type": "CLIP_VISION"},
+    {"from": ["workflow_inputs", "reference_image"], "to": ["wan_clip_vision", "image_1"], "type": "IMAGE"},
+    {"from": ["workflow_inputs", "reference_image"], "to": ["wan_scail_reference", "ref_image"], "type": "IMAGE"},
+    {"from": ["workflow_inputs", "vae"], "to": ["wan_scail_reference", "vae"], "type": "WANVAE"},
+    {"from": ["workflow_inputs", "vae"], "to": ["wan_scail_pose", "vae"], "type": "WANVAE"},
+    {"from": ["wan_empty_embeds", "image_embeds"], "to": ["wan_scail_reference", "embeds"], "type": "WANVIDIMAGE_EMBEDS"},
+    {"from": ["wan_clip_vision", "image_embeds"], "to": ["wan_scail_reference", "clip_embeds"], "type": "WANVIDIMAGE_CLIPEMBEDS"},
+    {"from": ["wan_scail_reference", "image_embeds"], "to": ["wan_scail_pose", "embeds"], "type": "WANVIDIMAGE_EMBEDS"},
+    {"from": ["nlf_render", "image"], "to": ["wan_scail_pose", "pose_images"], "type": "IMAGE"},
+    {"from": ["wan_scail_pose", "image_embeds"], "to": ["wan_sampler", "image_embeds"], "type": "WANVIDIMAGE_EMBEDS"},
+    {"from": ["workflow_inputs", "model"], "to": ["wan_sampler", "model"], "type": "WANVIDEOMODEL"},
+    {"from": ["workflow_inputs", "text_embeds"], "to": ["wan_sampler", "text_embeds"], "type": "WANVIDEOTEXTEMBEDS"},
+    {"from": ["workflow_inputs", "scheduler"], "to": ["wan_sampler", "scheduler"], "type": "WANVIDEOSCHEDULER"}
   ],
+  "legacy_contract": {
+    "renderer_required": true,
+    "renderer_scope": "legacy_v1_pose_control_only",
+    "clip_reference_enabled": true,
+    "clip_output_consumed": true,
+    "vae_required_by_reference_and_pose": true,
+    "scail_embeds_key": "scail_embeds",
+    "scail2_rgb_semantic_masks_supported": false
+  },
   "warnings": [
-    "This skeleton targets the current WanVideoWrapper SCAIL v1-style reference and pose image path.",
-    "It wires directly to WanVideoWrapper v1 SCAIL nodes; SCAIL-Pose2's SCAIL-2 adapter provides the explicit-degradation fallback path.",
-    "It does not represent SCAIL-2 RGB semantic masks, replacement mode, or 28-channel mask latents."
+    "This file is a static legacy-v1 topology contract, not an importable ComfyUI workflow.",
+    "RenderNLFPoses is required only for this explicit legacy SCAIL-v1 pose-control path.",
+    "This path does not provide SCAIL-2 RGB semantic masks, replacement mode, or 28-channel mask-latent parity."
   ]
 }

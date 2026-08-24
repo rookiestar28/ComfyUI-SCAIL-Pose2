@@ -172,6 +172,42 @@ REPLACEMENT_REQUIRED_LINKS = {
         "WANVIDSAMPLEREXTRAARGS",
     ),
 }
+V1_HOST_NODE_CLASSES = {
+    "wan_empty_embeds": "WanVideoEmptyEmbeds",
+    "wan_clip_vision": "WanVideoClipVisionEncode",
+    "wan_scail_reference": "WanVideoAddSCAILReferenceEmbeds",
+    "wan_scail_pose": "WanVideoAddSCAILPoseEmbeds",
+    "wan_sampler": "WanVideoSamplerv2",
+}
+V1_REQUIRED_LOCAL_LINKS = {
+    (("workflow_inputs", "nlf_poses"), ("nlf_render", "nlf_poses"), "NLFPRED"),
+    (("workflow_inputs", "width"), ("nlf_render", "render_width"), "INT"),
+    (("workflow_inputs", "height"), ("nlf_render", "render_height"), "INT"),
+    (("nlf_render", "image"), ("wan_scail_pose", "pose_images"), "IMAGE"),
+    (
+        ("wan_clip_vision", "image_embeds"),
+        ("wan_scail_reference", "clip_embeds"),
+        "WANVIDIMAGE_CLIPEMBEDS",
+    ),
+}
+WANANIMATE_REQUIRED_INPUTS = {
+    "vae",
+    "width",
+    "height",
+    "num_frames",
+    "force_offload",
+    "frame_window_size",
+    "colormatch",
+    "pose_strength",
+    "face_strength",
+}
+WANANIMATE_SEMANTIC_LOSSES = {
+    "rgb_semantic_masks_collapsed_to_binary_grayscale",
+    "scail2_28_channel_mask_latent_not_represented",
+    "replacement_flag_rope_mode_not_represented",
+    "additional_reference_pairs_not_represented",
+    "mask_palette_track_metadata_not_preserved_as_channels",
+}
 
 
 def load_skeleton(name: str):
@@ -249,6 +285,92 @@ def replacement_configuration_diagnostics(data):
     return tuple(sorted(diagnostics))
 
 
+def v1_contract_diagnostics(data):
+    diagnostics = []
+    host = data.get("host")
+    if not isinstance(host, dict):
+        return ("INVALID_HOST_DECLARATION",)
+
+    manifest = load_contract_manifest()
+    try:
+        family = manifest.family(host.get("family"), host.get("revision"))
+    except Exception:
+        return ("UNSUPPORTED_HOST_FAMILY",)
+
+    nodes = {node.get("id"): node for node in data.get("nodes", [])}
+    links = data.get("links", [])
+    incoming = {(tuple(link["to"]), link["type"]) for link in links}
+    link_set = {
+        (tuple(link["from"]), tuple(link["to"]), link["type"]) for link in links
+    }
+
+    for node_id, class_type in V1_HOST_NODE_CLASSES.items():
+        node = nodes.get(node_id)
+        if node is None or node.get("class_type") != class_type:
+            diagnostics.append(f"MISSING_HOST_NODE:{node_id}")
+            continue
+        contract = family.node(class_type)
+        literal_inputs = set(node.get("inputs", {}))
+        linked_inputs = {target[1] for target, _ in incoming if target[0] == node_id}
+        for socket in contract.required_inputs:
+            if socket.name not in literal_inputs | linked_inputs:
+                diagnostics.append(f"MISSING_REQUIRED_INPUT:{node_id}:{socket.name}")
+
+        outputs = {socket.name: socket.comfy_type for socket in contract.outputs}
+        for link in links:
+            if link["from"][0] != node_id:
+                continue
+            source_name = link["from"][1]
+            if source_name not in outputs:
+                diagnostics.append(f"INVALID_HOST_OUTPUT:{node_id}:{source_name}")
+            elif link["type"] != outputs[source_name]:
+                diagnostics.append(f"INVALID_OUTPUT_TYPE:{node_id}:{source_name}")
+
+    for required in V1_REQUIRED_LOCAL_LINKS - link_set:
+        diagnostics.append("MISSING_LOCAL_LINK:" + "->".join((required[0][1], required[1][1])))
+    return tuple(sorted(diagnostics))
+
+
+def render_nlf_skeletons(workflows):
+    return tuple(
+        sorted(
+            name
+            for name, data in workflows.items()
+            if any(node.get("class_type") == "RenderNLFPoses" for node in data.get("nodes", []))
+        )
+    )
+
+
+def wananimate_design_note_diagnostics(data):
+    diagnostics = []
+    classification = data.get("classification", {})
+    availability = data.get("availability", {})
+    degradation = data.get("degradation", {})
+    nodes = data.get("nodes", [])
+
+    if classification.get("decision") != "reclassified_non_executable_design_note":
+        diagnostics.append("INVALID_NECESSITY_DECISION")
+    if data.get("executable") is not False:
+        diagnostics.append("EXECUTABLE_FALLBACK_CLAIM")
+    if availability.get("registered_comfyui_adapter_node") is not False:
+        diagnostics.append("REGISTERED_ADAPTER_CLAIM")
+    if any(node.get("id") == "wananimate_fallback_adapter" for node in nodes):
+        diagnostics.append("PHANTOM_ADAPTER_NODE")
+    if any("helper" in node for node in nodes):
+        diagnostics.append("PHANTOM_GRAPH_HELPER")
+    if data.get("links"):
+        diagnostics.append("PHANTOM_EXECUTABLE_LINKS")
+    if set(data.get("target_required_inputs", ())) != WANANIMATE_REQUIRED_INPUTS:
+        diagnostics.append("INCOMPLETE_TARGET_REQUIREMENTS")
+    if degradation.get("allow_semantic_degradation_default") is not False:
+        diagnostics.append("DEGRADATION_DEFAULT_ENABLED")
+    if degradation.get("requires_explicit_enable") is not True:
+        diagnostics.append("DEGRADATION_OPT_IN_DISABLED")
+    if set(degradation.get("semantic_losses", ())) != WANANIMATE_SEMANTIC_LOSSES:
+        diagnostics.append("INCOMPLETE_SEMANTIC_LOSSES")
+    return tuple(sorted(diagnostics))
+
+
 class WorkflowSkeletonTests(unittest.TestCase):
     def test_all_skeletons_parse_and_use_local_schema(self) -> None:
         for path in sorted(SKELETON_DIR.glob("*.json")):
@@ -263,6 +385,10 @@ class WorkflowSkeletonTests(unittest.TestCase):
         data = load_skeleton("wan_scail_v1_pose_control.json")
         class_types = {node["class_type"] for node in data["nodes"]}
         links = {(tuple(link["to"]), link["type"]) for link in data["links"]}
+
+        self.assertEqual("kijai-vanilla", data["host"]["family"])
+        self.assertEqual("legacy_v1_pose_control", data["classification"]["mode"])
+        self.assertFalse(v1_contract_diagnostics(data))
 
         self.assertTrue(
             {
@@ -310,6 +436,60 @@ class WorkflowSkeletonTests(unittest.TestCase):
         self.assertIn(
             "semantic identity colors",
             nlf_render["geometry_contract"]["multi_person_identity_composition"],
+        )
+
+    def test_v1_required_contract_mutations_are_detected(self) -> None:
+        data = load_skeleton("wan_scail_v1_pose_control.json")
+        critical_targets = {
+            ("wan_clip_vision", "clip_vision"),
+            ("wan_scail_reference", "vae"),
+            ("wan_scail_pose", "vae"),
+            ("wan_scail_reference", "clip_embeds"),
+            ("wan_sampler", "model"),
+            ("wan_sampler", "scheduler"),
+        }
+
+        for target in critical_targets:
+            with self.subTest(target=target):
+                mutated = copy.deepcopy(data)
+                removed = next(link for link in mutated["links"] if tuple(link["to"]) == target)
+                mutated["links"].remove(removed)
+                self.assertTrue(v1_contract_diagnostics(mutated))
+
+        bad_output = copy.deepcopy(data)
+        clip_link = next(
+            link
+            for link in bad_output["links"]
+            if link["to"] == ["wan_scail_reference", "clip_embeds"]
+        )
+        clip_link["from"][1] = "WANVIDIMAGE_CLIPEMBEDS"
+        self.assertTrue(v1_contract_diagnostics(bad_output))
+
+        bad_type = copy.deepcopy(data)
+        next(
+            link
+            for link in bad_type["links"]
+            if link["to"] == ["wan_scail_reference", "clip_embeds"]
+        )["type"] = "IMAGE"
+        self.assertTrue(v1_contract_diagnostics(bad_type))
+
+    def test_render_nlf_is_scoped_to_legacy_v1_skeleton(self) -> None:
+        workflows = {
+            path.name: json.loads(path.read_text(encoding="utf-8"))
+            for path in SKELETON_DIR.glob("*.json")
+        }
+        self.assertEqual(
+            ("wan_scail_v1_pose_control.json",),
+            render_nlf_skeletons(workflows),
+        )
+
+        mutated = copy.deepcopy(workflows)
+        mutated["wanvideo_native_scail2.json"]["nodes"].append(
+            {"id": "forbidden", "class_type": "RenderNLFPoses"}
+        )
+        self.assertEqual(
+            ("wan_scail_v1_pose_control.json", "wanvideo_native_scail2.json"),
+            render_nlf_skeletons(mutated),
         )
 
     def test_render_nlf_fixture_render_and_condition_dimensions_are_split(self) -> None:
@@ -1144,18 +1324,53 @@ class WorkflowSkeletonTests(unittest.TestCase):
     def test_wananimate_fallback_skeleton_requires_explicit_degradation(self) -> None:
         data = load_skeleton("wananimate_fallback.json")
         class_types = {node.get("class_type") for node in data["nodes"]}
-        adapter = next(
-            node for node in data["nodes"] if node["id"] == "wananimate_fallback_adapter"
-        )
 
         self.assertIn("WanVideoAnimateEmbeds", class_types)
-        self.assertFalse(adapter["allow_semantic_degradation_default"])
+        self.assertFalse(wananimate_design_note_diagnostics(data))
+        self.assertFalse(data["executable"])
+        self.assertFalse(data["availability"]["registered_comfyui_adapter_node"])
         self.assertFalse(data["degradation"]["is_full_scail2_parity"])
         self.assertTrue(data["degradation"]["requires_explicit_enable"])
         self.assertIn(
             "rgb_semantic_masks_collapsed_to_binary_grayscale",
             data["degradation"]["semantic_losses"],
         )
+
+    def test_wananimate_design_note_mutations_are_detected(self) -> None:
+        data = load_skeleton("wananimate_fallback.json")
+
+        mutations = []
+        executable = copy.deepcopy(data)
+        executable["executable"] = True
+        mutations.append(executable)
+        registered = copy.deepcopy(data)
+        registered["availability"]["registered_comfyui_adapter_node"] = True
+        mutations.append(registered)
+        phantom_node = copy.deepcopy(data)
+        phantom_node["nodes"].append(
+            {"id": "wananimate_fallback_adapter", "helper": "unavailable_graph_helper"}
+        )
+        mutations.append(phantom_node)
+        phantom_link = copy.deepcopy(data)
+        phantom_link["links"].append(
+            {"from": ["source", "mask"], "to": ["wananimate_embeds", "mask"], "type": "MASK"}
+        )
+        mutations.append(phantom_link)
+        default_enabled = copy.deepcopy(data)
+        default_enabled["degradation"]["allow_semantic_degradation_default"] = True
+        mutations.append(default_enabled)
+        opt_in_disabled = copy.deepcopy(data)
+        opt_in_disabled["degradation"]["requires_explicit_enable"] = False
+        mutations.append(opt_in_disabled)
+        for loss in WANANIMATE_SEMANTIC_LOSSES:
+            missing_loss = copy.deepcopy(data)
+            if loss in missing_loss["degradation"]["semantic_losses"]:
+                missing_loss["degradation"]["semantic_losses"].remove(loss)
+            mutations.append(missing_loss)
+
+        for index, mutated in enumerate(mutations):
+            with self.subTest(index=index):
+                self.assertTrue(wananimate_design_note_diagnostics(mutated))
 
     def test_skeletons_are_public_safe(self) -> None:
         forbidden_tokens = [
