@@ -129,6 +129,15 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertIn("reference-camera solve safety", readme)
         self.assertIn("Both `pose_video` and `driving_video` can stay wired", readme)
         self.assertIn("automatically uses `pose_video` for `animation` mode", readme)
+        self.assertIn(
+            "SCAIL-2 animation accepts an RGB driving/conditioning video",
+            readme,
+        )
+        self.assertIn("does not require an NLF or skeleton render", readme)
+        self.assertIn("Legacy SCAIL-v1 pose control still uses rendered pose inputs", readme)
+        for forbidden in (".planning/", "reference/docs/", "B:\\"):
+            self.assertNotIn(forbidden, readme)
+        self.assertNotRegex(readme, r"\bS2W\d+\b")
         self.assertIn("driving_video` for `replacement` mode", readme)
         self.assertIn("### Troubleshooting", readme)
         self.assertIn("Action inaccuracy", readme)

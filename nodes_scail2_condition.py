@@ -124,14 +124,15 @@ def _select_mode_video_source(
     if mode == "replacement":
         if driving_video is None:
             raise ValueError(
-                "driving_video is required when mode is replacement; connect the "
-                "original driving video to SCAIL-Pose2 SCAIL-2 Condition.driving_video"
+                "driving_video is required when mode is replacement; connect the raw "
+                "RGB replacement driving video to SCAIL-Pose2 SCAIL-2 "
+                "Condition.driving_video"
             )
         return driving_video
     if mode == "animation" and pose_video is None:
         raise ValueError(
-            "pose_video is required when mode is animation; connect rendered poses "
-            "to SCAIL-Pose2 SCAIL-2 Condition.pose_video"
+            "pose_video is required when mode is animation; connect an RGB "
+            "driving/conditioning video to SCAIL-Pose2 SCAIL-2 Condition.pose_video"
         )
     return pose_video
 
@@ -281,9 +282,19 @@ class SCAILPose2SCAIL2Condition:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "pose_video_mask": ("IMAGE",),
+                "pose_video_mask": (
+                    "IMAGE",
+                    {
+                        "tooltip": "Colored semantic driving mask for SCAIL-2 identity control; not a binary denoise mask."
+                    },
+                ),
                 "ref_image": ("IMAGE",),
-                "ref_mask": ("IMAGE",),
+                "ref_mask": (
+                    "IMAGE",
+                    {
+                        "tooltip": "Reference semantic mask kept separate from the RGB reference image."
+                    },
+                ),
                 "mode": (["animation", "replacement"], {"default": "animation"}),
                 "width": ("INT", {"default": 512, "min": 1, "step": 1}),
                 "height": ("INT", {"default": 512, "min": 1, "step": 1}),
@@ -318,8 +329,18 @@ class SCAILPose2SCAIL2Condition:
                 ),
             },
             "optional": {
-                "pose_video": ("IMAGE",),
-                "driving_video": ("IMAGE",),
+                "pose_video": (
+                    "IMAGE",
+                    {
+                        "tooltip": "Historical socket name for the RGB driving/conditioning video used by animation mode."
+                    },
+                ),
+                "driving_video": (
+                    "IMAGE",
+                    {
+                        "tooltip": "Raw RGB replacement driving video; used instead of pose_video when mode is replacement."
+                    },
+                ),
                 "additional_ref_image": ("IMAGE",),
                 "additional_ref_mask": ("IMAGE",),
             },
@@ -329,7 +350,10 @@ class SCAILPose2SCAIL2Condition:
     RETURN_NAMES = ("condition",)
     FUNCTION = "build"
     CATEGORY = "SCAIL-Pose2/SCAIL-2"
-    DESCRIPTION = "Build a validated SCAIL-2 condition payload from RGB semantic masks."
+    DESCRIPTION = (
+        "Build a validated SCAIL-2 condition from an RGB driving/conditioning video "
+        "and separate colored semantic masks."
+    )
 
     def build(
         self,
@@ -376,8 +400,8 @@ class SCAILPose2SCAIL2Condition:
         if mode == "replacement":
             LOGGER.info(
                 "SCAIL-Pose2 replacement condition uses driving_video as the "
-                "condition video source; sparse NLF skeleton-to-mask bbox "
-                "validation is not applied."
+                "raw RGB condition video source; the colored semantic driving "
+                "mask remains a separate control."
             )
             (
                 ref_image,

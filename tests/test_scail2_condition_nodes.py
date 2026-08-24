@@ -6,6 +6,8 @@ import unittest
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
+import torch
+
 from scail2.condition import TYPE_SCAIL2_CONDITION
 
 
@@ -133,6 +135,50 @@ class Scail2ConditionNodeTests(unittest.TestCase):
             ("pose_video", "driving_video", "additional_ref_image", "additional_ref_mask"),
             tuple(input_types["optional"]),
         )
+        for name in ("pose_video_mask", "ref_image", "ref_mask"):
+            self.assertEqual("IMAGE", input_types["required"][name][0])
+        for name in ("pose_video", "driving_video"):
+            self.assertEqual("IMAGE", input_types["optional"][name][0])
+
+    def test_condition_descriptions_define_rgb_video_and_semantic_mask_roles(self) -> None:
+        package = import_root_package()
+        node_cls = package.NODE_CLASS_MAPPINGS["SCAILPose2SCAIL2Condition"]
+        input_types = node_cls.INPUT_TYPES()
+
+        self.assertIn("RGB driving/conditioning video", node_cls.DESCRIPTION)
+        pose_tooltip = input_types["optional"]["pose_video"][1]["tooltip"]
+        driving_tooltip = input_types["optional"]["driving_video"][1]["tooltip"]
+        mask_tooltip = input_types["required"]["pose_video_mask"][1]["tooltip"]
+        reference_mask_tooltip = input_types["required"]["ref_mask"][1]["tooltip"]
+
+        self.assertIn("historical socket name", pose_tooltip.lower())
+        self.assertIn("RGB", pose_tooltip)
+        self.assertNotIn("skeleton", pose_tooltip.lower())
+        self.assertIn("raw rgb", driving_tooltip.lower())
+        self.assertIn("colored semantic", mask_tooltip.lower())
+        self.assertIn("not a binary denoise mask", mask_tooltip)
+        self.assertIn("reference semantic mask", reference_mask_tooltip.lower())
+
+    def test_animation_accepts_arbitrary_rgb_batch_without_content_classification(self) -> None:
+        node = condition_node()
+        arbitrary_rgb = torch.arange(90, dtype=torch.float32).reshape(5, 2, 3, 3) / 89.0
+
+        condition, = node.build(
+            pose_video=arbitrary_rgb,
+            pose_video_mask=frames_from_colors([RED] * 5),
+            ref_image="ref",
+            ref_mask=frames_from_colors([WHITE]),
+            mode="animation",
+            width=1,
+            height=1,
+            num_frames=5,
+        )
+
+        self.assertIs(arbitrary_rgb, condition.pose_video)
+        self.assertIsInstance(condition.pose_video, torch.Tensor)
+        self.assertEqual("animation", condition.mode)
+        self.assertEqual((5, 2, 3, 3), tuple(arbitrary_rgb.shape))
+        self.assertGreater(torch.unique(arbitrary_rgb).numel(), 3)
 
     def test_condition_node_builds_all_modes_and_preserves_mask_indices(self) -> None:
         node = condition_node()
@@ -180,7 +226,7 @@ class Scail2ConditionNodeTests(unittest.TestCase):
     def test_replacement_mode_requires_driving_video(self) -> None:
         node = condition_node()
 
-        with self.assertRaisesRegex(ValueError, "driving_video is required"):
+        with self.assertRaisesRegex(ValueError, "driving_video is required") as raised:
             node.build(
                 pose_video="pose",
                 pose_video_mask=frames_from_colors([RED] * 5),
@@ -191,11 +237,12 @@ class Scail2ConditionNodeTests(unittest.TestCase):
                 height=1,
                 num_frames=5,
             )
+        self.assertIn("raw RGB replacement driving video", str(raised.exception))
 
     def test_animation_mode_requires_pose_video(self) -> None:
         node = condition_node()
 
-        with self.assertRaisesRegex(ValueError, "pose_video is required"):
+        with self.assertRaisesRegex(ValueError, "pose_video is required") as raised:
             node.build(
                 driving_video="driving",
                 pose_video_mask=frames_from_colors([RED] * 5),
@@ -206,6 +253,8 @@ class Scail2ConditionNodeTests(unittest.TestCase):
                 height=1,
                 num_frames=5,
             )
+        self.assertIn("RGB driving/conditioning video", str(raised.exception))
+        self.assertNotIn("rendered poses", str(raised.exception))
 
     def test_condition_node_rejects_pose_driven_as_independent_mode(self) -> None:
         node = condition_node()
