@@ -31,6 +31,13 @@ NATIVE_ANIMATION_CONTRACT_FIXTURE = (
     / "workflow_contracts"
     / "native_animation_host_contract.json"
 )
+REPLACEMENT_CONTRACT_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_contracts"
+    / "replacement_background_lock_host_contract.json"
+)
 NATIVE_ANIMATION_FORBIDDEN_CLASSES = {
     "RenderNLFPoses",
     "NLFPredictPoses",
@@ -55,6 +62,116 @@ NATIVE_ANIMATION_REQUIRED_LINKS = {
     (("wan_context_options", "context_options"), ("wan_sampler_extra_args", "context_options"), "WANVIDCONTEXT"),
     (("wan_sampler_extra_args", "extra_args"), ("wan_sampler", "extra_args"), "WANVIDSAMPLEREXTRAARGS"),
 }
+REPLACEMENT_FORBIDDEN_CLASSES = {
+    "RenderNLFPoses",
+    "NLFPredictPoses",
+    "SCAILPose2PoseMaskGeometryAlign",
+    "SCAILPose2ReferenceImageGeometryAlign",
+    "SCAILPose2ReplacementConditionVideo",
+}
+REPLACEMENT_REQUIRED_LINKS = {
+    (("workflow_inputs", "driving_video"), ("sam3_video_track", "images"), "IMAGE"),
+    (
+        ("sam3_video_track", "track_data"),
+        ("colored_masks", "driving_track_data"),
+        "SAM3_TRACK_DATA",
+    ),
+    (("workflow_inputs", "reference_mask"), ("colored_masks", "ref_mask"), "MASK"),
+    (
+        ("workflow_inputs", "driving_video"),
+        ("scail2_condition", "driving_video"),
+        "IMAGE",
+    ),
+    (
+        ("colored_masks", "pose_video_mask"),
+        ("scail2_condition", "pose_video_mask"),
+        "IMAGE",
+    ),
+    (
+        ("workflow_inputs", "reference_image"),
+        ("scail2_condition", "ref_image"),
+        "IMAGE",
+    ),
+    (
+        ("colored_masks", "reference_image_mask"),
+        ("scail2_condition", "ref_mask"),
+        "IMAGE",
+    ),
+    (
+        ("scail2_condition", "condition"),
+        ("replacement_denoise_mask", "condition"),
+        "SCAIL2_CONDITION",
+    ),
+    (
+        ("colored_masks", "pose_video_mask"),
+        ("replacement_denoise_mask", "pose_video_mask"),
+        "IMAGE",
+    ),
+    (
+        ("replacement_denoise_mask", "mask"),
+        ("wanvideo_encode", "mask"),
+        "MASK",
+    ),
+    (
+        ("workflow_inputs", "driving_video"),
+        ("wanvideo_encode", "driving_video"),
+        "IMAGE",
+    ),
+    (("workflow_inputs", "vae"), ("wanvideo_encode", "vae"), "WANVAE"),
+    (
+        ("scail2_condition", "condition"),
+        ("wanvideo_scail2_adapter", "condition"),
+        "SCAIL2_CONDITION",
+    ),
+    (
+        ("wanvideo_scail2_adapter", "condition"),
+        ("wan_scail2_condition_embeds", "condition"),
+        "SCAIL2_WANVIDEO_PAYLOAD",
+    ),
+    (
+        ("wan_empty_embeds", "image_embeds"),
+        ("wan_scail2_condition_embeds", "embeds"),
+        "WANVIDIMAGE_EMBEDS",
+    ),
+    (
+        ("workflow_inputs", "vae"),
+        ("wan_scail2_condition_embeds", "vae"),
+        "WANVAE",
+    ),
+    (
+        ("wan_scail2_condition_embeds", "image_embeds"),
+        ("wan_sampler", "image_embeds"),
+        "WANVIDIMAGE_EMBEDS",
+    ),
+    (("wanvideo_encode", "samples"), ("wan_sampler", "samples"), "LATENT"),
+    (("workflow_inputs", "model"), ("wan_sampler", "model"), "WANVIDEOMODEL"),
+    (
+        ("workflow_inputs", "text_embeds"),
+        ("wan_sampler", "text_embeds"),
+        "WANVIDEOTEXTEMBEDS",
+    ),
+    (
+        ("workflow_inputs", "scheduler"),
+        ("wan_sampler", "scheduler"),
+        "WANVIDEOSCHEDULER",
+    ),
+    (("workflow_inputs", "width"), ("scail2_condition", "width"), "INT"),
+    (("workflow_inputs", "height"), ("scail2_condition", "height"), "INT"),
+    (("workflow_inputs", "num_frames"), ("scail2_condition", "num_frames"), "INT"),
+    (("workflow_inputs", "width"), ("wan_empty_embeds", "width"), "INT"),
+    (("workflow_inputs", "height"), ("wan_empty_embeds", "height"), "INT"),
+    (("workflow_inputs", "num_frames"), ("wan_empty_embeds", "num_frames"), "INT"),
+    (
+        ("wan_context_options", "context_options"),
+        ("wan_sampler_extra_args", "context_options"),
+        "WANVIDCONTEXT",
+    ),
+    (
+        ("wan_sampler_extra_args", "extra_args"),
+        ("wan_sampler", "extra_args"),
+        "WANVIDSAMPLEREXTRAARGS",
+    ),
+}
 
 
 def load_skeleton(name: str):
@@ -69,6 +186,10 @@ def load_native_animation_contract_fixture():
     return json.loads(NATIVE_ANIMATION_CONTRACT_FIXTURE.read_text(encoding="utf-8"))
 
 
+def load_replacement_contract_fixture():
+    return json.loads(REPLACEMENT_CONTRACT_FIXTURE.read_text(encoding="utf-8"))
+
+
 def native_animation_forbidden_classes(data):
     classes = {node.get("class_type") for node in data.get("nodes", [])}
     return tuple(sorted(classes & NATIVE_ANIMATION_FORBIDDEN_CLASSES))
@@ -80,6 +201,52 @@ def native_animation_missing_links(data):
         for link in data.get("links", [])
     }
     return tuple(sorted(NATIVE_ANIMATION_REQUIRED_LINKS - links))
+
+
+def replacement_missing_links(data):
+    links = {
+        (tuple(link["from"]), tuple(link["to"]), link["type"])
+        for link in data.get("links", [])
+    }
+    return tuple(sorted(REPLACEMENT_REQUIRED_LINKS - links))
+
+
+def replacement_forbidden_classes(data):
+    classes = {node.get("class_type") for node in data.get("nodes", [])}
+    return tuple(sorted(classes & REPLACEMENT_FORBIDDEN_CLASSES))
+
+
+def replacement_configuration_diagnostics(data):
+    diagnostics = []
+    links = {
+        (tuple(link["from"]), tuple(link["to"]), link["type"])
+        for link in data.get("links", [])
+    }
+    if any(target == ("scail2_condition", "pose_video") for _, target, _ in links):
+        diagnostics.append("POSE_VIDEO_LINK_PRESENT")
+    if any(
+        source == ("wan_context_options", "context_options")
+        and target[0] == "wan_sampler"
+        for source, target, _ in links
+    ):
+        diagnostics.append("DIRECT_CONTEXT_LINK_PRESENT")
+
+    contract = data.get("background_lock_contract", {})
+    polarity = contract.get("mask_polarity", {})
+    if polarity.get("subject_replace_area") != 1.0:
+        diagnostics.append("INVALID_SUBJECT_MASK_POLARITY")
+    if polarity.get("background_preserve_area") != 0.0:
+        diagnostics.append("INVALID_BACKGROUND_MASK_POLARITY")
+
+    sampler = next(
+        (node for node in data.get("nodes", []) if node.get("id") == "wan_sampler"),
+        {},
+    )
+    if sampler.get("inputs", {}).get("add_noise_to_samples") is not True:
+        diagnostics.append("INVALID_SAMPLER_NOISE_INPUT")
+    if sampler.get("required_settings", {}).get("add_noise_to_samples") is not True:
+        diagnostics.append("INVALID_SAMPLER_NOISE_CONTRACT")
+    return tuple(sorted(diagnostics))
 
 
 class WorkflowSkeletonTests(unittest.TestCase):
@@ -651,6 +818,13 @@ class WorkflowSkeletonTests(unittest.TestCase):
             for link in data["links"]
         }
 
+        self.assertEqual("rookiestar28-scail2", data["host"]["family"])
+        self.assertEqual(load_replacement_contract_fixture()["host"], data["host"])
+        self.assertEqual("replacement", data["classification"]["mode"])
+        self.assertFalse(replacement_forbidden_classes(data))
+        self.assertFalse(replacement_missing_links(data))
+        self.assertFalse(replacement_configuration_diagnostics(data))
+
         self.assertTrue(
             {
                 "SCAILPose2ColoredMask",
@@ -682,7 +856,7 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                ("workflow_inputs", "ref_image"),
+                ("workflow_inputs", "reference_image"),
                 ("scail2_condition", "ref_image"),
                 "IMAGE",
             ),
@@ -766,6 +940,11 @@ class WorkflowSkeletonTests(unittest.TestCase):
         )
         sampler = next(node for node in data["nodes"] if node["id"] == "wan_sampler")
         self.assertTrue(sampler["required_settings"]["add_noise_to_samples"])
+        self.assertEqual(True, sampler["inputs"]["add_noise_to_samples"])
+        defaults = data["contract_defaults"]
+        self.assertEqual(0, (defaults["num_frames"] - 1) % 4)
+        self.assertGreaterEqual(defaults["context_frames"], 2)
+        self.assertLess(defaults["context_overlap"], defaults["context_frames"])
         contract = data["background_lock_contract"]
         self.assertEqual("driving_video", contract["encode_driving_video_socket"])
         self.assertEqual(
@@ -815,6 +994,151 @@ class WorkflowSkeletonTests(unittest.TestCase):
             data["multi_person_identity_contract"][
                 "under_provisioned_references_are_warnings"
             ]
+        )
+
+    def test_replacement_host_contract_passes_source_validator(self) -> None:
+        fixture = load_replacement_contract_fixture()
+        result = validate_workflow_contract(fixture)
+
+        self.assertTrue(result.valid)
+        self.assertEqual((), result.diagnostics)
+        self.assertEqual("static_host_subgraph", fixture["classification"])
+        serialized = json.dumps(fixture, sort_keys=True)
+        for forbidden in (".planning", "reference/docs", "RenderNLFPoses", "prompt"):
+            self.assertNotIn(forbidden, serialized)
+        self.assertNotRegex(serialized, r"[A-Za-z]:\\")
+        self.assertNotRegex(serialized, r"\bS2W\d+\b")
+
+    def test_replacement_host_contract_mutations_fail_closed(self) -> None:
+        fixture = load_replacement_contract_fixture()
+
+        missing_vae = copy.deepcopy(fixture)
+        encode = next(node for node in missing_vae["nodes"] if node["id"] == "encode")
+        encode["inputs"].pop("vae")
+        self.assertIn(
+            "MISSING_REQUIRED_INPUT",
+            {item.code for item in inspect_workflow_contract(missing_vae)},
+        )
+
+        bad_socket = copy.deepcopy(fixture)
+        encode = next(node for node in bad_socket["nodes"] if node["id"] == "encode")
+        encode["inputs"]["image"] = encode["inputs"].pop("driving_video")
+        self.assertIn(
+            "UNKNOWN_NODE_INPUT",
+            {item.code for item in inspect_workflow_contract(bad_socket)},
+        )
+
+        bad_output = copy.deepcopy(fixture)
+        next(link for link in bad_output["links"] if link["to"] == ["sampler", "samples"])[
+            "from"
+        ][1] = 1
+        self.assertIn(
+            "INVALID_SOURCE_OUTPUT",
+            {item.code for item in inspect_workflow_contract(bad_output)},
+        )
+
+        bad_type = copy.deepcopy(fixture)
+        next(link for link in bad_type["links"] if link["to"] == ["sampler", "samples"])[
+            "type"
+        ] = "IMAGE"
+        self.assertIn(
+            "DECLARED_LINK_TYPE_MISMATCH",
+            {item.code for item in inspect_workflow_contract(bad_type)},
+        )
+
+        bad_revision = copy.deepcopy(fixture)
+        bad_revision["host"]["revision"] = "0" * 40
+        self.assertIn(
+            "UNSUPPORTED_HOST_FAMILY",
+            {item.code for item in inspect_workflow_contract(bad_revision)},
+        )
+
+    def test_replacement_required_link_removal_is_detected(self) -> None:
+        data = load_skeleton("wanvideo_replacement_background_lock.json")
+
+        for required in REPLACEMENT_REQUIRED_LINKS:
+            with self.subTest(required=required):
+                mutated = copy.deepcopy(data)
+                removed = next(
+                    link
+                    for link in mutated["links"]
+                    if (tuple(link["from"]), tuple(link["to"]), link["type"]) == required
+                )
+                mutated["links"].remove(removed)
+                self.assertIn(required, replacement_missing_links(mutated))
+
+    def test_replacement_forbidden_class_insertion_is_detected(self) -> None:
+        data = load_skeleton("wanvideo_replacement_background_lock.json")
+
+        for class_type in REPLACEMENT_FORBIDDEN_CLASSES:
+            with self.subTest(class_type=class_type):
+                mutated = copy.deepcopy(data)
+                mutated["nodes"].append({"id": "forbidden", "class_type": class_type})
+                self.assertEqual((class_type,), replacement_forbidden_classes(mutated))
+
+    def test_replacement_configuration_mutations_are_detected(self) -> None:
+        data = load_skeleton("wanvideo_replacement_background_lock.json")
+
+        pose_video = copy.deepcopy(data)
+        pose_video["links"].append(
+            {
+                "from": ["workflow_inputs", "driving_video"],
+                "to": ["scail2_condition", "pose_video"],
+                "type": "IMAGE",
+            }
+        )
+        self.assertIn(
+            "POSE_VIDEO_LINK_PRESENT",
+            replacement_configuration_diagnostics(pose_video),
+        )
+
+        direct_context = copy.deepcopy(data)
+        direct_context["links"].append(
+            {
+                "from": ["wan_context_options", "context_options"],
+                "to": ["wan_sampler", "context_options"],
+                "type": "WANVIDCONTEXT",
+            }
+        )
+        self.assertIn(
+            "DIRECT_CONTEXT_LINK_PRESENT",
+            replacement_configuration_diagnostics(direct_context),
+        )
+
+        subject_polarity = copy.deepcopy(data)
+        subject_polarity["background_lock_contract"]["mask_polarity"][
+            "subject_replace_area"
+        ] = 0.0
+        self.assertIn(
+            "INVALID_SUBJECT_MASK_POLARITY",
+            replacement_configuration_diagnostics(subject_polarity),
+        )
+
+        background_polarity = copy.deepcopy(data)
+        background_polarity["background_lock_contract"]["mask_polarity"][
+            "background_preserve_area"
+        ] = 1.0
+        self.assertIn(
+            "INVALID_BACKGROUND_MASK_POLARITY",
+            replacement_configuration_diagnostics(background_polarity),
+        )
+
+        sampler_input = copy.deepcopy(data)
+        next(node for node in sampler_input["nodes"] if node["id"] == "wan_sampler")[
+            "inputs"
+        ]["add_noise_to_samples"] = False
+        self.assertIn(
+            "INVALID_SAMPLER_NOISE_INPUT",
+            replacement_configuration_diagnostics(sampler_input),
+        )
+
+        sampler_contract = copy.deepcopy(data)
+        next(node for node in sampler_contract["nodes"] if node["id"] == "wan_sampler")[
+            "required_settings"
+        ]["add_noise_to_samples"] = False
+        self.assertIn(
+            "INVALID_SAMPLER_NOISE_CONTRACT",
+            replacement_configuration_diagnostics(sampler_contract),
         )
 
     def test_wananimate_fallback_skeleton_requires_explicit_degradation(self) -> None:

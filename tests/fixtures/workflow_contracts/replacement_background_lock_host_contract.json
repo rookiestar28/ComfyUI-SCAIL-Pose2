@@ -1,0 +1,75 @@
+{
+  "schema": "scail_pose2.workflow_contract.v1",
+  "workflow_id": "replacement-background-lock-host-subgraph",
+  "classification": "static_host_subgraph",
+  "host": {
+    "family": "rookiestar28-scail2",
+    "revision": "ef95cfa0eef9b5bc8704aec6b7d5963d23ad02a\u0039"
+  },
+  "nodes": [
+    {
+      "id": "empty",
+      "class_type": "WanVideoEmptyEmbeds",
+      "inputs": {"width": 512, "height": 512, "num_frames": 81}
+    },
+    {
+      "id": "encode",
+      "class_type": "WanVideoEncode",
+      "inputs": {
+        "vae": "external-vae",
+        "driving_video": "external-driving-video",
+        "enable_vae_tiling": false,
+        "tile_x": 272,
+        "tile_y": 272,
+        "tile_stride_x": 144,
+        "tile_stride_y": 128,
+        "mask": "external-denoise-mask"
+      }
+    },
+    {
+      "id": "scail2",
+      "class_type": "WanVideoAddSCAIL2ConditionEmbeds",
+      "inputs": {
+        "condition": "external-scail2-payload",
+        "vae": "external-vae",
+        "ref_image_strength": 1.0,
+        "ref_mask_strength": 1.0,
+        "condition_video_strength": 1.0,
+        "driving_mask_strength": 1.0
+      }
+    },
+    {
+      "id": "context",
+      "class_type": "WanVideoContextOptions",
+      "inputs": {
+        "context_schedule": "uniform_standard",
+        "context_frames": 81,
+        "context_stride": 1,
+        "context_overlap": 16,
+        "freenoise": true,
+        "verbose": false
+      }
+    },
+    {"id": "extra", "class_type": "WanVideoSamplerExtraArgs", "inputs": {}},
+    {
+      "id": "sampler",
+      "class_type": "WanVideoSamplerv2",
+      "inputs": {
+        "model": "external-model",
+        "cfg": 5.0,
+        "seed": 0,
+        "force_offload": true,
+        "scheduler": "external-scheduler",
+        "text_embeds": "external-text-embeds",
+        "add_noise_to_samples": true
+      }
+    }
+  ],
+  "links": [
+    {"from": ["empty", "image_embeds"], "to": ["scail2", "embeds"], "type": "WANVIDIMAGE_EMBEDS"},
+    {"from": ["scail2", "image_embeds"], "to": ["sampler", "image_embeds"], "type": "WANVIDIMAGE_EMBEDS"},
+    {"from": ["encode", "samples"], "to": ["sampler", "samples"], "type": "LATENT"},
+    {"from": ["context", "context_options"], "to": ["extra", "context_options"], "type": "WANVIDCONTEXT"},
+    {"from": ["extra", "extra_args"], "to": ["sampler", "extra_args"], "type": "WANVIDSAMPLEREXTRAARGS"}
+  ]
+}

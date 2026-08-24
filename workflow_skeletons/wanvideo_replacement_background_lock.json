@@ -3,22 +3,47 @@
   "title": "Native SCAIL-2 Replacement Background Lock Skeleton",
   "execution": "static_only",
   "live_generation": "deferred",
+  "host": {
+    "family": "rookiestar28-scail2",
+    "revision": "ef95cfa0eef9b5bc8704aec6b7d5963d23ad02a\u0039"
+  },
+  "classification": {
+    "mode": "replacement",
+    "contract": "static_full_topology",
+    "host_validator_fixture": "tests/fixtures/workflow_contracts/replacement_background_lock_host_contract.json",
+    "external_inputs_are_placeholders": true
+  },
+  "contract_defaults": {
+    "width": 512,
+    "height": 512,
+    "num_frames": 81,
+    "context_frames": 81,
+    "context_stride": 1,
+    "context_overlap": 16
+  },
   "nodes": [
     {
       "id": "workflow_inputs",
       "class_type": "ExternalWorkflowInputs",
-      "role": "user_supplied_driving_video_tracks_models_prompts_and_vae",
-      "outputs": {
-        "driving_video": "IMAGE",
-        "ref_image": "IMAGE",
-        "vae": "WANVAE"
-      }
+      "role": "user_supplied_rgb_reference_models_text_vae_scheduler_and_dimensions",
+      "outputs": [
+        {"name": "driving_video", "type": "IMAGE"},
+        {"name": "reference_image", "type": "IMAGE"},
+        {"name": "reference_mask", "type": "MASK"},
+        {"name": "model", "type": "WANVIDEOMODEL"},
+        {"name": "text_embeds", "type": "WANVIDEOTEXTEMBEDS"},
+        {"name": "vae", "type": "WANVAE"},
+        {"name": "scheduler", "type": "WANVIDEOSCHEDULER"},
+        {"name": "width", "type": "INT"},
+        {"name": "height", "type": "INT"},
+        {"name": "num_frames", "type": "INT"}
+      ]
     },
     {
       "id": "sam3_video_track",
       "class_type": "SAM3_VideoTrack",
       "display_name": "SAM3 Video Track",
-      "role": "comfyui_builtin_sam3_video_track",
+      "role": "driving_video_subject_tracking",
       "outputs": [
         { "name": "track_data", "type": "SAM3_TRACK_DATA" }
       ]
@@ -26,7 +51,8 @@
     {
       "id": "colored_masks",
       "class_type": "SCAILPose2ColoredMask",
-      "role": "sam3_track_colored_mask_creation",
+      "role": "driving_and_reference_semantic_mask_creation",
+      "inputs": {"object_indices": "", "sort_by": "left_to_right"},
       "identity_palette": ["blue", "red", "green", "magenta", "cyan", "yellow"],
       "identity_order_source": "selected_object_order_after_sort_and_object_indices_filter",
       "outputs": [
@@ -39,6 +65,16 @@
       "class_type": "SCAILPose2SCAIL2Condition",
       "role": "validated_replacement_condition_builder_driving_video_source",
       "mode": "replacement",
+      "inputs": {
+        "mode": "replacement",
+        "reference_fit_mode": "auto",
+        "reference_anchor": "auto",
+        "reference_target_frame_policy": "median_bbox",
+        "reference_control_region": "auto",
+        "reference_bbox_margin": 0,
+        "reference_max_scale": 2.0,
+        "reference_min_mask_area_ratio": 0.0005
+      },
       "output_type": "SCAIL2_CONDITION",
       "input_order": ["pose_video", "driving_video", "pose_video_mask", "ref_image", "ref_mask", "additional_ref_image", "additional_ref_mask"],
       "reference_geometry_alignment": {
@@ -77,6 +113,13 @@
       "id": "wanvideo_encode",
       "class_type": "WanVideoEncode",
       "role": "wrapper_latent_samples_with_noise_mask",
+      "inputs": {
+        "enable_vae_tiling": false,
+        "tile_x": 272,
+        "tile_y": 272,
+        "tile_stride_x": 144,
+        "tile_stride_y": 128
+      },
       "output_type": "LATENT",
       "output_name": "samples"
     },
@@ -84,6 +127,7 @@
       "id": "wanvideo_scail2_adapter",
       "class_type": "SCAILPose2WanVideoSCAIL2Adapter",
       "role": "wanvideo_wrapper_scail2_payload_contract",
+      "inputs": {"degrade_to_v1": false, "allow_degradation": false},
       "output_type": "SCAIL2_WANVIDEO_PAYLOAD",
       "output_name": "condition",
       "degrade_to_v1_default": false,
@@ -99,6 +143,12 @@
       "id": "wan_scail2_condition_embeds",
       "class_type": "WanVideoAddSCAIL2ConditionEmbeds",
       "role": "wrapper_native_scail2_embeds",
+      "inputs": {
+        "ref_image_strength": 1.0,
+        "ref_mask_strength": 1.0,
+        "condition_video_strength": 1.0,
+        "driving_mask_strength": 1.0
+      },
       "input_type": "SCAIL2_WANVIDEO_PAYLOAD",
       "output_type": "WANVIDIMAGE_EMBEDS",
       "embeds_key": "scail2_embeds",
@@ -118,14 +168,34 @@
       "id": "wan_context_options",
       "class_type": "WanVideoContextOptions",
       "role": "wrapper_context_window_owner",
+      "inputs": {
+        "context_schedule": "uniform_standard",
+        "context_frames": 81,
+        "context_stride": 1,
+        "context_overlap": 16,
+        "freenoise": true,
+        "verbose": false
+      },
       "output_type": "WANVIDCONTEXT",
       "optional": true
+    },
+    {
+      "id": "wan_sampler_extra_args",
+      "class_type": "WanVideoSamplerExtraArgs",
+      "role": "context_to_sampler_v2_adapter",
+      "output_type": "WANVIDSAMPLEREXTRAARGS"
     },
     {
       "id": "wan_sampler",
       "class_type": "WanVideoSamplerv2",
       "role": "wrapper_sampler",
       "input_type": "WANVIDIMAGE_EMBEDS",
+      "inputs": {
+        "cfg": 5.0,
+        "seed": 0,
+        "force_offload": true,
+        "add_noise_to_samples": true
+      },
       "required_settings": {
         "add_noise_to_samples": true
       }
@@ -153,12 +223,17 @@
       "type": "SAM3_TRACK_DATA"
     },
     {
+      "from": ["workflow_inputs", "reference_mask"],
+      "to": ["colored_masks", "ref_mask"],
+      "type": "MASK"
+    },
+    {
       "from": ["colored_masks", "pose_video_mask"],
       "to": ["scail2_condition", "pose_video_mask"],
       "type": "IMAGE"
     },
     {
-      "from": ["workflow_inputs", "ref_image"],
+      "from": ["workflow_inputs", "reference_image"],
       "to": ["scail2_condition", "ref_image"],
       "type": "IMAGE"
     },
@@ -171,6 +246,21 @@
       "from": ["workflow_inputs", "driving_video"],
       "to": ["scail2_condition", "driving_video"],
       "type": "IMAGE"
+    },
+    {
+      "from": ["workflow_inputs", "width"],
+      "to": ["scail2_condition", "width"],
+      "type": "INT"
+    },
+    {
+      "from": ["workflow_inputs", "height"],
+      "to": ["scail2_condition", "height"],
+      "type": "INT"
+    },
+    {
+      "from": ["workflow_inputs", "num_frames"],
+      "to": ["scail2_condition", "num_frames"],
+      "type": "INT"
     },
     {
       "from": ["scail2_condition", "condition"],
@@ -193,9 +283,29 @@
       "type": "SCAIL2_CONDITION"
     },
     {
+      "from": ["workflow_inputs", "width"],
+      "to": ["wan_empty_embeds", "width"],
+      "type": "INT"
+    },
+    {
+      "from": ["workflow_inputs", "height"],
+      "to": ["wan_empty_embeds", "height"],
+      "type": "INT"
+    },
+    {
+      "from": ["workflow_inputs", "num_frames"],
+      "to": ["wan_empty_embeds", "num_frames"],
+      "type": "INT"
+    },
+    {
       "from": ["wanvideo_scail2_adapter", "condition"],
       "to": ["wan_scail2_condition_embeds", "condition"],
       "type": "SCAIL2_WANVIDEO_PAYLOAD"
+    },
+    {
+      "from": ["workflow_inputs", "vae"],
+      "to": ["wan_scail2_condition_embeds", "vae"],
+      "type": "WANVAE"
     },
     {
       "from": ["wan_empty_embeds", "image_embeds"],
@@ -213,10 +323,30 @@
       "type": "LATENT"
     },
     {
+      "from": ["workflow_inputs", "model"],
+      "to": ["wan_sampler", "model"],
+      "type": "WANVIDEOMODEL"
+    },
+    {
+      "from": ["workflow_inputs", "text_embeds"],
+      "to": ["wan_sampler", "text_embeds"],
+      "type": "WANVIDEOTEXTEMBEDS"
+    },
+    {
+      "from": ["workflow_inputs", "scheduler"],
+      "to": ["wan_sampler", "scheduler"],
+      "type": "WANVIDEOSCHEDULER"
+    },
+    {
       "from": ["wan_context_options", "context_options"],
-      "to": ["wan_sampler", "context_options"],
+      "to": ["wan_sampler_extra_args", "context_options"],
       "type": "WANVIDCONTEXT",
       "optional": true
+    },
+    {
+      "from": ["wan_sampler_extra_args", "extra_args"],
+      "to": ["wan_sampler", "extra_args"],
+      "type": "WANVIDSAMPLEREXTRAARGS"
     }
   ],
   "background_lock_contract": {
@@ -264,6 +394,9 @@
     },
     "context_frame_map_contract": {
       "context_owner": "WanVideoContextOptions",
+      "adapter_input_socket": "context_options",
+      "sampler_socket": "extra_args",
+      "route": "WanVideoContextOptions.context_options -> WanVideoSamplerExtraArgs.context_options -> WanVideoSamplerv2.extra_args",
       "core_does_not_schedule_context_windows": true,
       "pose_latents_and_driving_masks_must_share_frame_count": true,
       "samples_and_noise_mask_must_share_latent_timeline": true
