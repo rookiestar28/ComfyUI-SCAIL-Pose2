@@ -64,6 +64,8 @@ class ReleaseCloseoutTests(unittest.TestCase):
             "workflow_skeletons/scail2_condition_builder.json",
             "workflow_skeletons/wanvideo_native_scail2.json",
             "workflow_skeletons/wananimate_fallback.json",
+            "example_workflows/scail2_replacement_default.json",
+            "example_workflows/scail2_replacement_wanvideowrapper_compact.json",
         ]
 
         for path in required_paths:
@@ -143,7 +145,9 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertIn("Action inaccuracy", readme)
         self.assertIn("Source leakage", readme)
         self.assertIn("Stale runtime wrapper copy", readme)
-        self.assertIn("Mask coverage diagnostics", readme)
+        self.assertIn("Optional background-lock diagnostics", readme)
+        self.assertIn("accepted no-samples route is the default", readme)
+        self.assertIn("sampler `samples` input is intentionally disconnected", readme)
         self.assertIn("Render NLF geometry drift", readme)
         self.assertIn("must cover the full driving subject", readme)
         self.assertIn("Prompt clothing detail cannot compensate", readme)
@@ -156,7 +160,9 @@ class ReleaseCloseoutTests(unittest.TestCase):
         self.assertNotIn("not the raw driving video", readme)
         self.assertNotIn("Replacement mode expects `pose_video` and `pose_video_mask`", readme)
         self.assertNotIn("SCAILPose2SCAIL2Condition.pose_video`. Do not route", readme)
-        node_groups = readme.split("## Native SCAIL-2 Workflow Notes", maxsplit=1)[0]
+        node_groups = readme.split("## Node Groups", maxsplit=1)[1].split(
+            "## Native SCAIL-2 Workflow Notes", maxsplit=1
+        )[0]
         self.assertNotIn("WanVideoAddSCAIL2ConditionEmbeds", node_groups)
         self.assertNotIn("WanVideoEncode", node_groups)
         self.assertNotIn("reference/docs", readme)

@@ -6,6 +6,7 @@ ComfyUI-SCAIL-Pose2 is a ComfyUI custom node package for SCAIL-2 pose and mask p
 
 - [Installation](#installation)
 - [Optional Dependencies](#optional-dependencies)
+- [Default Workflow Templates](#default-workflow-templates)
 - [Node Groups](#node-groups)
   - [SCAIL-Pose2 / Adapter](#scail-pose2--adapter)
   - [SCAIL-Pose2 / SAM3](#scail-pose2--sam3)
@@ -43,6 +44,40 @@ ComfyUI provides the core runtime, including Torch in normal installations. This
 
 - SAM3 preprocessing is optional. SAM3-specific imports are attempted only when the SAM3 execution path runs; missing dependency errors should point to the optional SAM3 requirement instead of breaking package import.
 - ComfyUI-WanVideoWrapper is the intended downstream generation partner, but this package does not import it at startup.
+
+## Default Workflow Templates
+
+ComfyUI discovers this package's loadable templates from `example_workflows/` in the Template
+Browser:
+
+- `example_workflows/scail2_replacement_default.json` is the recommended setup. It retains bounded
+  reference, semantic-mask, comparison, and result preview nodes.
+- `example_workflows/scail2_replacement_wanvideowrapper_compact.json` retains the final-output
+  dependency graph and the same native WanVideoWrapper generation/control lane with fewer preview
+  surfaces. The compact variant has not been independently live-smoke-tested; it is a static,
+  contract-tested derivative of the validated recommended source.
+
+Install or provide compatible versions of ComfyUI-SCAIL-Pose2, ComfyUI-WanVideoWrapper with
+`WanVideoAddSCAIL2ConditionEmbeds`, ComfyUI-VideoHelperSuite, ComfyUI-KJNodes,
+ComfyUI_Text_Processor, and a ComfyUI build that provides `SAM3_VideoTrack` and the required core
+loaders. The compact template is WanVideoWrapper-focused in its generation/control lane; the full
+workflow also needs SCAIL-Pose2 condition nodes, SAM3 tracking, utility/resize nodes, and video I/O.
+
+After loading either template, Select every `select_*` placeholder for the driving video, reference
+image, SCAIL-2 diffusion model, VAE, CLIP Vision model, text encoder, and SAM3 checkpoint. LoRA slots
+are disabled by default. Replace the generic positive and negative prompt text, then verify the
+generated width, height, frame count, and fixed context value before queuing.
+
+Keep the paired KJNodes Set/Get variable name `driving_video` unchanged on both nodes. That name is
+the virtual-link key, and the replacement Condition intentionally receives it through
+`driving_video`; `pose_video` is the separate animation-mode input. Renaming only one end breaks the
+virtual route, while repointing replacement mode to `pose_video` violates the mode contract.
+
+The accepted no-samples route is the default: raw driving video and colored semantic masks feed the
+SCAIL-2 condition, `WanVideoEmptyEmbeds` supplies independent shape/frame authority, and the sampler `samples` input is intentionally disconnected. Adding an encoded source-video samples/noise-mask
+path is an optional experiment, not required wiring. That background hard splice can preserve a
+different spatial boundary than the generated subject and visibly shift, clip, or stair-step the
+scene at their intersection.
 
 ## Node Groups
 
@@ -121,13 +156,26 @@ Replacement mode does not use rendered NLF skeletons as the canonical condition 
 Replacement workflows use these repo outputs:
 
 1. `SCAILPose2WanVideoSCAIL2Adapter.condition` for SCAIL-2 conditioning.
-2. `SCAILPose2ReplacementDenoiseMask.mask` for hard background preservation.
+2. `SCAILPose2ColoredMask.pose_video_mask` and `reference_image_mask` for semantic subject/reference
+   control.
 
-SCAIL-2 conditioning guides subject/reference behavior; it does not hard-freeze the original background by itself. Replacement background lock also requires the downstream video encode samples path to receive the original `driving_video` and this repo's replacement denoise mask, then pass those samples into the sampler. In `animation` mode, `SCAILPose2ReplacementDenoiseMask` emits an all-`1.0` passthrough mask with metadata that disables compatible downstream background-lock samples.
+SCAIL-2 conditioning guides subject/reference behavior but does not hard-freeze the original
+background. The repository templates deliberately use the no-samples route because it keeps the
+generated subject and surrounding scene in one denoising coordinate system. A downstream
+`WanVideoEncode` plus `SCAILPose2ReplacementDenoiseMask` samples path remains available for manual
+background-lock experiments, but it is not the default template wiring and can create a visible hard
+splice when its preserve boundary disagrees with generated geometry. In `animation` mode,
+`SCAILPose2ReplacementDenoiseMask` emits an all-`1.0` passthrough mask with metadata that disables
+compatible downstream background-lock samples.
 
 For replacement, `SCAILPose2SCAIL2Condition.driving_video` should receive the raw `driving_video` directly. Do not route `RenderNLFPoses` into that input for replacement mode; rendered pose skeletons cannot preserve the original subject proportions relative to the SAM3 mask. Both `pose_video` and `driving_video` can stay wired: the Condition node automatically uses `pose_video` for `animation` mode and `driving_video` for `replacement` mode.
 
-When original subject body shape leaks into replacement output, first verify the downstream samples/noise-mask path: original `driving_video` must be encoded with `SCAILPose2ReplacementDenoiseMask.mask`, then those samples must reach the sampler. `SCAILPose2ReplacementConditionVideo` is retained only as a legacy/experimental/manual fallback for unusual experiments, and using it may reduce pose accuracy because it changes the video that becomes SCAIL-2 pose latents.
+When original subject body shape leaks into replacement output, first verify full SAM3 subject
+coverage, raw-driving routing, reference alignment, and SCAIL-2 strength settings. Do not add a
+samples/noise-mask path as an automatic leakage fix: it may preserve an incompatible source boundary.
+`SCAILPose2ReplacementConditionVideo` is retained only as a legacy/experimental/manual fallback for
+unusual experiments, and using it may reduce pose accuracy because it changes the video that becomes
+SCAIL-2 pose latents.
 
 Compatible downstream integrations should preserve the replacement mask's SCAIL-Pose2 metadata so subject pixels remain `1.0` replace/denoise areas and background pixels remain `0.0` preserve areas after latent conversion.
 
@@ -135,7 +183,12 @@ For replacement mode, `pose_video_mask` must cover the full driving subject acro
 
 #### Reference And Shape Tuning
 
-The canonical route keeps the replacement condition video raw so the official SCAIL-2 pose-latent signal remains intact. If you deliberately use the legacy `SCAILPose2ReplacementConditionVideo` fallback, treat it as an experiment after confirming the sampler mask path is correct; a conservative starting point is `mask_preset=custom`, `grow_pixels=8`, `blur_pixels=0`, `suppression_mode=blur_fill`, and `suppression_strength=1.0`.
+The canonical route keeps the replacement condition video raw so the official SCAIL-2 pose-latent
+signal remains intact and leaves sampler `samples` disconnected. If you deliberately use the legacy
+`SCAILPose2ReplacementConditionVideo` fallback, treat it as an experiment after confirming the raw
+condition and semantic masks are correct; a conservative starting point is `mask_preset=custom`,
+`grow_pixels=8`, `blur_pixels=0`, `suppression_mode=blur_fill`, and
+`suppression_strength=1.0`.
 
 When the reference image has a different crop, aspect ratio, or subject scale from the driving subject, keep `ref_image` and `ref_mask` connected directly to `SCAILPose2SCAIL2Condition`. In `replacement` mode, Condition automatically attempts to align the reference image/mask to `pose_video_mask` before building the condition. In `animation` mode, this replacement-only alignment path is skipped.
 
@@ -151,17 +204,28 @@ Compatible WanVideoWrapper builds may expose SCAIL-2 strength controls on their 
 
 #### Preview Behavior
 
-Early sampler previews can still show a noisy or incomplete original background even when the background-lock path is wired correctly. During early denoise steps, the preserved background latent is also highly noised; judge background preservation from later previews or the final decoded output, not from the first preview frames alone.
+Early sampler previews can still show a noisy or incomplete scene. Judge composition and boundaries
+from later previews or the final decoded output, not from the first preview frames alone. If an
+optional background-lock samples experiment is enabled, compare it against the default no-samples
+template and inspect the entire subject/background intersection for hard-splice displacement.
 
 ### Troubleshooting
 
 **Action inaccuracy:** for replacement mode, keep `SCAILPose2SCAIL2Condition.driving_video` wired to raw `driving_video`. Do not suppress, repaint, or replace that video before SCAIL-2 condition encoding; doing so can weaken the official pose-latent motion signal.
 
-**Source leakage:** verify the downstream samples path first. The original `driving_video` should be encoded with `SCAILPose2ReplacementDenoiseMask.mask`, and the resulting samples must reach the sampler. Subject regions should initialize from random noise, while background/preserve regions can use samples.
+**Source leakage:** verify SAM3 coverage, raw `driving_video` routing, reference alignment, prompt,
+and SCAIL-2 strengths first. The default templates intentionally leave sampler `samples`
+disconnected. Only test encoded driving samples as an explicit A/B experiment, because a hard
+preserve boundary can clip newly generated geometry.
 
 **Stale runtime wrapper copy:** if behavior does not match this README after updating files, confirm the active ComfyUI custom-node folder is using the same ComfyUI-WanVideoWrapper fork that contains SCAIL-Pose2 replacement mask support. A copied or cached older wrapper can still ignore SCAIL-Pose2 mask metadata.
 
-**Mask coverage diagnostics:** compatible wrapper builds log `noise_mask_latent_contract`, `samples_initialization_contract`, and `samples_window_alignment_contract`. Check `subject_ratio`, `preserve_ratio`, `latent_grow_pixels`, `latent_temporal_grow_frames`, `subject_source`, and `preserve_source` to confirm covered subject pixels are not initialized from the original driving samples.
+**Optional background-lock diagnostics:** compatible wrapper builds may log
+`noise_mask_latent_contract`, `samples_initialization_contract`, and
+`samples_window_alignment_contract` when the manual samples lane is enabled. Check `subject_ratio`,
+`preserve_ratio`, `latent_grow_pixels`, `latent_temporal_grow_frames`, `subject_source`, and
+`preserve_source`, then compare the final frame against the default no-samples template. These logs
+do not make the optional hard-splice route canonical.
 
 **Prompt and clothing mismatch:** Prompt clothing detail cannot compensate for an undercovered driving-subject mask. If replacement output changes clothing randomly or returns to the driving-video person mid-generation, first fix SAM3 object selection and `pose_video_mask` coverage so the full driving subject is in the denoise/replace region before tuning prompt wording or SCAIL-2 strength controls.
 
