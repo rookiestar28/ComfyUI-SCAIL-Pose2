@@ -1,13 +1,35 @@
 # Test SOP
 
+<!-- CURRENT-TEST-GOVERNANCE:START -->
+## Current Change-Governance Authority
+
+This section supersedes narrower documentation exceptions, platform-selection rules, and Hosted CI
+acceptance wording elsewhere in this file.
+
+- Pure text/documentation changes and version-field-only `pyproject.toml` updates do not require
+  planning, a roadmap item, records/logs, independent review, a documentation test contract, E2E,
+  or the full repository gate. Use proportionate text/TOML/metadata checks only when useful.
+- Dependency, build, tool-configuration, entry-point, runtime-compatibility, or other
+  behavior-bearing `pyproject.toml` changes are not version-only fast-path changes.
+- For non-exempt work, a passing Windows Full Gate is the authoritative repository-wide test
+  result. Neither push nor Hosted CI is required, and acceptance evidence does not need to bind to a
+  pushed commit. Linux/WSL and Hosted CI runs are optional diagnostics unless the current item
+  explicitly requires platform-specific evidence.
+- Required item-scoped security, live-host, provider, migration, release, or publication checks
+  remain additive.
+<!-- CURRENT-TEST-GOVERNANCE:END -->
+
 This document is the source-of-truth local verification workflow for **ComfyUI-SCAIL-Pose2**.
 
 ## Repository Facts
 
-- This repository is a Python ComfyUI custom-node project in preparation/reconstruction.
+- This repository is a Python ComfyUI custom-node project for SCAIL/SCAIL-2 preprocessing and
+  downstream adapter workflows.
 - The target product is `comfyui-scail-pose2`, a preprocessing and adapter node pack for SCAIL/SCAIL-2 workflows.
 - The intended downstream generation owner is `ComfyUI-WanVideoWrapper`; this repository should not duplicate WanVideoWrapper sampler/model-loader/decode responsibilities unless a later roadmap item explicitly approves that direction.
-- The tracked package currently includes restored v1 pose nodes, SCAIL-2 helper modules, WanVideoWrapper adapter nodes, workflow skeletons, packaging metadata, test runners, and release validation tests.
+- The tracked package currently includes restored v1 pose nodes, SCAIL-2 helper modules,
+  WanVideoWrapper adapter nodes, source-derived host workflow validation, public example workflows,
+  clean-clone fixtures, packaging metadata, test runners, and release validation tests.
 - Ignored reference material is read-only and must not be executed during routine validation.
 - There is no tracked `package.json`, frontend extension, Playwright config, or browser test harness in the current repo state.
 - The active internal roadmap defines staged implementation items.
@@ -56,7 +78,7 @@ A green full gate alone is not sufficient bugfix evidence.
 
 ## Documentation-only Exception
 
-If all touched files are documentation/planning text only and no code, tests, scripts, dependency manifests, runtime config, generated artifacts, or public release artifacts changed, full runtime test execution is optional.
+If all touched files are documentation/planning text only and no code, tests, scripts, dependency manifests other than a version-field-only `pyproject.toml` update, runtime config, generated artifacts, or public release artifacts changed, no full runtime test execution is required.
 
 Required evidence for documentation-only changes:
 
@@ -80,7 +102,8 @@ Recommended interpreter order:
 2. Windows repo-local `.venv`
 3. WSL/Linux repo-local `.venv-wsl`
 
-For future product-code validation, Python 3.10+ is required unless ComfyUI or dependency compatibility requires a narrower version.
+Python 3.10+ is required for product-code validation unless ComfyUI or dependency compatibility
+requires a narrower version.
 
 Do not rely on global Python packages as the first-choice validation path for accepted implementation work.
 
@@ -197,7 +220,7 @@ Run tracked tests when present:
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-Future tests should cover:
+Current contract coverage should continue to cover:
 
 - existing v1 node key/display compatibility
 - OpenPose/DWPose conversion behavior
@@ -205,8 +228,11 @@ Future tests should cover:
 - SCAIL-2 RGB mask palette validation
 - 28-channel mask latent packing
 - `SCAIL2_CONDITION` validation
-- WanVideoWrapper contract mapping with mocks, not runtime imports
+- native SCAIL-2 WanVideoWrapper payload/embeds contracts and explicit legacy degradation with mocks,
+  not runtime imports
 - SAM3 missing-dependency behavior through lazy imports
+- source-derived host socket/link/output contracts, clean-clone workflow fixtures, and public
+  template privacy/packaging invariants
 
 ### 6. ComfyUI custom-node smoke/integration lane
 

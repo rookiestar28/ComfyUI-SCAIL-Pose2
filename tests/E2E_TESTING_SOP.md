@@ -1,5 +1,17 @@
 # E2E Testing SOP
 
+<!-- CURRENT-TEST-GOVERNANCE:START -->
+## Current Governance Scope
+
+A change limited to pure text/documentation files, a version-field-only `pyproject.toml` update, or
+both does not enter this E2E workflow and requires no planning, roadmap item, record/log,
+independent review, documentation test contract, browser installation, or full gate. Behavior-
+bearing metadata changes do not qualify. For non-exempt work, applicable E2E runs through the
+authoritative Windows Full Gate. Hosted CI repetitions are optional diagnostics and are not
+acceptance prerequisites or pushed-commit evidence. Explicit item-scoped live/supported-host checks
+remain separate when required.
+<!-- CURRENT-TEST-GOVERNANCE:END -->
+
 This SOP defines the ComfyUI custom-node smoke/integration workflow for **ComfyUI-SCAIL-Pose2**.
 
 ## Scope
@@ -11,7 +23,7 @@ The E2E boundary for this repository is the ComfyUI custom-node integration boun
 - ComfyUI or a compatible test harness can discover and import the node package.
 - `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS` expose expected nodes.
 - Changed node classes execute representative workflows with deterministic inputs.
-- Output `IMAGE`, `MASK`, `NLFPRED`, `SCAIL2_CONDITION`, and adapter metadata contracts match node definitions.
+- Output `IMAGE`, `MASK`, `NLFPRED`, `SCAIL2_CONDITION`, and `SCAIL2_WANVIDEO_PAYLOAD` contracts match node definitions.
 - Optional dependencies fail lazily with actionable messages.
 - WanVideoWrapper compatibility is validated by static contracts and mocks unless the user explicitly approves live wrapper execution.
 
@@ -152,7 +164,7 @@ Local file import smoke:
 python -c "import importlib.util, pathlib; p=pathlib.Path('__init__.py'); assert p.exists(), 'missing __init__.py'; spec=importlib.util.spec_from_file_location('ComfyUI_SCAIL_Pose2', p); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); assert hasattr(m, 'NODE_CLASS_MAPPINGS'); print(sorted(m.NODE_CLASS_MAPPINGS.keys()))"
 ```
 
-Expected future v1 compatibility keys:
+Current v1 compatibility keys:
 
 ```text
 NLFModelLoader
@@ -191,8 +203,10 @@ Use static/mocked validation by default.
 Required assertions for adapter work:
 
 - adapter output names and ComfyUI types match the planned wrapper target sockets
-- current wrapper SCAIL path is treated as v1-style reference/pose conditioning only
-- SCAIL-2-only fields are either preserved in `SCAIL2_CONDITION` or explicitly listed as unsupported by the current wrapper path
+- native SCAIL-2 payloads remain compatible with `WanVideoAddSCAIL2ConditionEmbeds` and preserve
+  reference-image, reference-mask, RGB condition-video, and driving-mask controls
+- legacy v1 degradation remains explicit and opt-in; it must not be presented as native SCAIL-2
+  parity
 - no adapter imports WanVideoWrapper at package import time
 
 Live WanVideoWrapper execution is out of normal scope. It requires explicit approval, a disposable environment, no secrets, and no execution of untrusted reference setup scripts.

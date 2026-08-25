@@ -2,8 +2,25 @@
 
 ComfyUI-SCAIL-Pose2 is a ComfyUI custom node package for SCAIL-2 pose and mask preprocessing. The public workflow documented here focuses on this repo's SCAIL-Pose2 nodes: SAM3 colored masks, SCAIL-2 condition payloads, WanVideoWrapper adapter payloads, replacement denoise masks, and legacy condition-video utilities.
 
+## Last Update
+
+- Added recommended and compact SCAIL-2 replacement workflow templates with public-safe asset
+  placeholders and stable KJNodes Set/Get pairing.
+- Made native SCAIL-2 animation and replacement workflows use RGB conditioning directly without a
+  mandatory NLF or skeleton-render branch.
+- Set the replacement templates to the raw `driving_video` and colored semantic-mask route with
+  independent empty embeds and no encoded sampler `samples`, avoiding hard subject/background
+  splices by default.
+- Added source-derived WanVideo host-contract validation and clean-clone workflow fixtures that
+  catch socket, link, output-cardinality, host-family, and ignored-file drift.
+- Repaired native animation, replacement, legacy SCAIL-v1, and WanAnimate fallback workflow
+  contracts while retaining pose nodes only where the legacy host contract requires them.
+- Routed the 81-frame context window through WanVideo Context Options and Sampler Extra Args before
+  WanVideo Sampler V2 so the default templates do not serialize an invalid zero-sized context.
+
 ## Table of Contents
 
+- [Last Update](#last-update)
 - [Installation](#installation)
 - [Optional Dependencies](#optional-dependencies)
 - [Default Workflow Templates](#default-workflow-templates)
@@ -102,7 +119,7 @@ The older standalone v1 image adapter public node is no longer registered. Its v
 | --- | --- | --- | --- |
 | `SCAILPose2SCAIL2Condition` | Required: `pose_video_mask`, `ref_image`, `ref_mask`, `mode`, `width`, `height`, `num_frames`, and replacement reference-alignment controls.<br>Optional: `pose_video` (historical socket name for the RGB animation driving/conditioning video), `driving_video` (raw RGB replacement video), `additional_ref_image`, `additional_ref_mask`.<br>`mode`: `animation` or `replacement`.<br>`reference_fit_mode`: `auto`, `contain`, `cover`, `fit_height`, or `fit_width`.<br>`reference_anchor`: `auto`, `bottom_center`, or `center`.<br>`reference_target_frame_policy`: `median_bbox`, `first_valid`, or `largest`.<br>`reference_control_region`: `auto`, `subject`, or `upper_subject`.<br>`reference_bbox_margin`, `reference_max_scale`, `reference_min_mask_area_ratio`: replacement-only alignment safety controls. | `condition` (`SCAIL2_CONDITION`) | Builds the validated SCAIL-2 condition payload from RGB video and separate colored semantic masks. Both optional video inputs can stay wired: `animation` uses `pose_video`, while `replacement` requires and uses raw `driving_video`. In `replacement` mode, the node attempts to align `ref_image` and `ref_mask` to `pose_video_mask` before building the condition; in `animation` mode, this reference-geometry alignment is skipped. The condition records identity diagnostics so adapter payloads can report selected driving identity count, reference slot count, and under-provisioned multi-identity references. The declared final canvas, semantic `pose_video_mask`, and `num_frames` must agree; downstream hosts may resize the RGB condition video before VAE encoding. |
 | `SCAILPose2PoseMaskGeometryAlign` | `pose_video`: rendered pose image sequence, usually from `RenderNLFPoses.image`.<br>`pose_video_mask`: driving semantic mask sequence from `SCAILPose2ColoredMask.pose_video_mask`. | `pose_video` (`IMAGE`), `summary` (`STRING`) | Scales and translates rendered pose foregrounds so their bbox matches the SAM3-derived driving mask bbox. It infers geometry from the actual image sizes and applies conservative transform-level temporal stabilization for isolated one-frame bbox impulses while preserving continuous motion. Use this for already-rendered pose images or manual animation-mode repair workflows; current `RenderNLFPoses` also has an optional `pose_video_mask` input that applies this alignment inline. |
-| `SCAILPose2ReplacementConditionVideo` | `driving_video`: original replacement-mode driving video sequence.<br>`pose_video_mask`: same raw colored semantic mask used by the Condition node.<br>`mask_preset`: `custom`, `tight`, `default`, `loose`, or `soft`; non-custom presets override grow/blur values.<br>`grow_pixels`, `blur_pixels`: custom subject-region expansion and edge softness.<br>`suppression_mode`: `blur_fill`, `mean_fill`, `black_fill`, `white_fill`, or `noise_fill`.<br>`suppression_strength`: `0.0` keeps the original subject; `1.0` fully suppresses subject pixels inside the mask.<br>`noise_seed`: deterministic seed for `noise_fill`. | `driving_video_condition` (`IMAGE`), `summary` (`STRING`) | Legacy/experimental/manual fallback that suppresses original subject pixels before condition encoding. It is not the canonical replacement route because altering this video can weaken the official SCAIL-2 pose-latent motion signal. Prefer raw `driving_video` plus the sampler denoise-mask path. |
+| `SCAILPose2ReplacementConditionVideo` | `driving_video`: original replacement-mode driving video sequence.<br>`pose_video_mask`: same raw colored semantic mask used by the Condition node.<br>`mask_preset`: `custom`, `tight`, `default`, `loose`, or `soft`; non-custom presets override grow/blur values.<br>`grow_pixels`, `blur_pixels`: custom subject-region expansion and edge softness.<br>`suppression_mode`: `blur_fill`, `mean_fill`, `black_fill`, `white_fill`, or `noise_fill`.<br>`suppression_strength`: `0.0` keeps the original subject; `1.0` fully suppresses subject pixels inside the mask.<br>`noise_seed`: deterministic seed for `noise_fill`. | `driving_video_condition` (`IMAGE`), `summary` (`STRING`) | Legacy/experimental/manual fallback that suppresses original subject pixels before condition encoding. It is not the canonical replacement route because altering this video can weaken the official SCAIL-2 pose-latent motion signal. Prefer raw `driving_video` with the default no-samples route; treat the denoise-mask samples path as a manual background-lock experiment. |
 | `SCAILPose2ReplacementDenoiseMask` | `condition`: validated `SCAIL2_CONDITION`.<br>`pose_video_mask`: same raw colored semantic mask used by the Condition node.<br>`mask_preset`: `custom`, `tight`, `default`, `loose`, or `soft`; non-custom presets override grow/blur values.<br>`grow_pixels`: expands the subject denoise area before sampler use.<br>`blur_pixels`: softens the denoise mask edge. | `mask` (`MASK`), `summary` (`STRING`) | Builds a standard ComfyUI `MASK` for replacement/background-lock workflows. The node no longer exposes `strict_replacement_mode` or `invert`; non-replacement modes always emit an all-`1.0` passthrough mask with SCAIL-Pose2 metadata that disables this repo's background-lock samples path in compatible downstream integrations. In `replacement` mode, subject pixels are `1.0` and background preserve pixels are `0.0`; bounded lower-contact refinement is applied internally to improve foot/shoe coverage without adding visible sockets. The summary includes mask coverage, lower-contact, and margin diagnostics. |
 
 ## Native SCAIL-2 Workflow Notes
@@ -218,7 +235,10 @@ and SCAIL-2 strengths first. The default templates intentionally leave sampler `
 disconnected. Only test encoded driving samples as an explicit A/B experiment, because a hard
 preserve boundary can clip newly generated geometry.
 
-**Stale runtime wrapper copy:** if behavior does not match this README after updating files, confirm the active ComfyUI custom-node folder is using the same ComfyUI-WanVideoWrapper fork that contains SCAIL-Pose2 replacement mask support. A copied or cached older wrapper can still ignore SCAIL-Pose2 mask metadata.
+**Stale runtime wrapper copy:** if behavior does not match this README after updating files, confirm
+the active ComfyUI custom-node folder is using a compatible ComfyUI-WanVideoWrapper build with
+native SCAIL-2 condition embeds. An older copied or cached wrapper can miss that payload contract or
+ignore SCAIL-Pose2 mask metadata used by the optional background-lock lane.
 
 **Optional background-lock diagnostics:** compatible wrapper builds may log
 `noise_mask_latent_contract`, `samples_initialization_contract`, and
