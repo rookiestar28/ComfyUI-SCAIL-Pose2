@@ -80,6 +80,13 @@ ComfyUI_Text_Processor, and a ComfyUI build that provides `SAM3_VideoTrack` and 
 loaders. The compact template is WanVideoWrapper-focused in its generation/control lane; the full
 workflow also needs SCAIL-Pose2 condition nodes, SAM3 tracking, utility/resize nodes, and video I/O.
 
+The distributed templates use positional widget values. Their publication checks reject extra
+`widgets_values_named` state so mode, context, assets, prompts, and LoRA settings have one authority.
+VHS retains its extension-owned object-shaped `widgets_values`. User-saved workflows continue to
+follow the active frontend's serialization settings. Source-contract checks and automated node
+tests provide repository-side evidence; installed-host browser behavior and model inference need
+separate validation with the actual core, frontend, wrapper, and other node packs in use.
+
 After loading either template, Select every `select_*` placeholder for the driving video, reference
 image, SCAIL-2 diffusion model, VAE, CLIP Vision model, text encoder, and SAM3 checkpoint. LoRA slots
 are disabled by default. Replace the generic positive and negative prompt text, then verify the
@@ -227,6 +234,13 @@ optional background-lock samples experiment is enabled, compare it against the d
 template and inspect the entire subject/background intersection for hard-splice displacement.
 
 ### Troubleshooting
+
+**Empty SAM3 tracking masks:** inspect the tracking result and object selection before tuning
+Colored Mask. Empty tracks intentionally produce background masks, and a missing reference mask
+uses the documented solid reference fallback. SAM3 detection belongs to ComfyUI core; check the
+active core's detector handling of segmentation features after feature-pyramid scalping when
+comparing host builds. Updating this node pack alone does not update the core detector. Verify
+the active installation and rerun tracking before judging the downstream mask preview.
 
 **Action inaccuracy:** for replacement mode, keep `SCAILPose2SCAIL2Condition.driving_video` wired to raw `driving_video`. Do not suppress, repaint, or replace that video before SCAIL-2 condition encoding; doing so can weaken the official pose-latent motion signal.
 
