@@ -139,6 +139,10 @@ def validate_public_template(workflow: dict[str, Any], variant: str) -> None:
 
     for node in nodes:
         node_id = int(node["id"])
+        # CRITICAL: named restoration can override positional semantics; canonical publication
+        # must reject shadow state, including matching/empty values, rather than choose a winner.
+        if "widgets_values_named" in node:
+            raise AssertionError(f"{variant}: unsupported widgets_values_named at node {node_id}")
         for input_slot, node_input in enumerate(node.get("inputs", [])):
             link_id = node_input.get("link")
             if link_id is None:
@@ -323,6 +327,46 @@ class DefaultWorkflowTemplateTests(unittest.TestCase):
 
     def test_compact_template_contract(self) -> None:
         validate_public_template(load_workflow(COMPACT_PATH), "wanvideowrapper_compact")
+
+    def test_canonical_publication_rejects_named_widget_shadow_without_value_disclosure(self) -> None:
+        variants = (("recommended", DEFAULT_PATH), ("wanvideowrapper_compact", COMPACT_PATH))
+        cases = (
+            ("SCAILPose2SCAIL2Condition", {"mode": "animation"}, False),
+            ("SCAILPose2SCAIL2Condition", {"mode": "replacement"}, False),
+            ("SCAILPose2SCAIL2Condition", {}, False),
+            ("SCAILPose2SCAIL2Condition", {"mode": "replacement"}, True),
+            ("WanVideoContextOptions", {"context_frames": 17}, False),
+            ("WanVideoModelLoader", {"model": "synthetic selection marker"}, False),
+            ("LoadImage", {"image": "synthetic image marker"}, False),
+            ("VHS_LoadVideo", {"video": "synthetic video marker"}, False),
+            ("WanVideoTextEncodeCached", {"positive_prompt": "synthetic prompt marker"}, False),
+            ("WanVideoLoraSelectMulti", {"strength_0": 0.5}, False),
+        )
+        for variant, path in variants:
+            for index, (node_type, named, named_only) in enumerate(cases):
+                with self.subTest(variant=variant, case=index):
+                    workflow = load_workflow(path)
+                    node = node_by_type(workflow, node_type)
+                    node["widgets_values_named"] = named
+                    if named_only:
+                        node.pop("widgets_values")
+                    with self.assertRaisesRegex(AssertionError, "unsupported widgets_values_named") as caught:
+                        validate_public_template(workflow, variant)
+                    self.assertEqual(
+                        f"{variant}: unsupported widgets_values_named at node {int(node['id'])}",
+                        str(caught.exception),
+                    )
+
+    def test_canonical_templates_preserve_vhs_extension_owned_widget_objects(self) -> None:
+        for variant, path in (("recommended", DEFAULT_PATH), ("wanvideowrapper_compact", COMPACT_PATH)):
+            with self.subTest(variant=variant):
+                workflow = load_workflow(path)
+                video_nodes = [node for node in workflow["nodes"] if node["type"].startswith("VHS_")]
+                self.assertTrue(video_nodes)
+                for node in video_nodes:
+                    self.assertIsInstance(node["widgets_values"], dict)
+                    self.assertNotIn("widgets_values_named", node)
+                validate_public_template(workflow, variant)
 
     def test_compact_is_recommended_final_output_subset(self) -> None:
         recommended = load_workflow(DEFAULT_PATH)
