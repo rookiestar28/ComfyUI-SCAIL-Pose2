@@ -4,6 +4,16 @@ ComfyUI-SCAIL-Pose2 is a ComfyUI custom node package for SCAIL-2 pose and mask p
 
 ## Last Update
 
+Version **1.1.5**:
+
+- Added explicit historical and refreshed ComfyUI core source profiles. Host-contract verification
+  preserves both revisions and checks each contract against its own committed source, including
+  socket order and output names/types, with strict provenance and containment checks.
+- Strengthened canonical template publication checks to reject conflicting, matching, empty, or
+  named-only `widgets_values_named` state while preserving VHS-owned widget objects.
+- Added registered Colored Mask -> Condition -> Adapter integration coverage for packed, regular,
+  and empty SAM3 tracks in both animation and replacement modes, including reference fallback,
+  input immutability, and final 28-channel mask payload values and shapes.
 - Added recommended and compact SCAIL-2 replacement workflow templates with public-safe asset
   placeholders and stable KJNodes Set/Get pairing.
 - Made native SCAIL-2 animation and replacement workflows use RGB conditioning directly without a
@@ -72,7 +82,8 @@ Browser:
 - `example_workflows/scail2_replacement_wanvideowrapper_compact.json` retains the final-output
   dependency graph and the same native WanVideoWrapper generation/control lane with fewer preview
   surfaces. The compact variant has not been independently live-smoke-tested; it is a static,
-  contract-tested derivative of the validated recommended source.
+  contract-tested derivative of the recommended template. Both distributed JSON templates are
+  statically validated and have not been independently live-smoke-tested as published.
 
 Install or provide compatible versions of ComfyUI-SCAIL-Pose2, ComfyUI-WanVideoWrapper with
 `WanVideoAddSCAIL2ConditionEmbeds`, ComfyUI-VideoHelperSuite, ComfyUI-KJNodes,
