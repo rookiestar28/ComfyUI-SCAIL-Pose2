@@ -63,6 +63,67 @@
       ]
     },
     {
+      "family": "comfyui-core",
+      "revision": "30c4c3aa75\u0036f4655cde89c287c0745381a6c2bbc",
+      "origin": "https://github.com/Comfy-Org/ComfyUI.git",
+      "nodes": [
+        {
+          "class": "WanSCAILToVideo",
+          "required_inputs": [
+            {"name": "positive", "type": "CONDITIONING"},
+            {"name": "negative", "type": "CONDITIONING"},
+            {"name": "vae", "type": "VAE"},
+            {"name": "width", "type": "INT"},
+            {"name": "height", "type": "INT"},
+            {"name": "length", "type": "INT"},
+            {"name": "batch_size", "type": "INT"},
+            {"name": "pose_strength", "type": "FLOAT"},
+            {"name": "pose_start", "type": "FLOAT"},
+            {"name": "pose_end", "type": "FLOAT"},
+            {"name": "video_frame_offset", "type": "INT"},
+            {"name": "previous_frame_count", "type": "INT"}
+          ],
+          "optional_inputs": [
+            {"name": "pose_video", "type": "IMAGE"},
+            {"name": "pose_video_mask", "type": "IMAGE"},
+            {"name": "replacement_mode", "type": "BOOLEAN"},
+            {"name": "reference_image", "type": "IMAGE"},
+            {"name": "reference_image_mask", "type": "IMAGE"},
+            {"name": "clip_vision_output", "type": "CLIP_VISION_OUTPUT"},
+            {"name": "previous_frames", "type": "IMAGE"}
+          ],
+          "schema_order": ["positive", "negative", "vae", "width", "height", "length", "batch_size", "pose_video", "pose_video_mask", "replacement_mode", "pose_strength", "pose_start", "pose_end", "reference_image", "reference_image_mask", "clip_vision_output", "video_frame_offset", "previous_frame_count", "previous_frames"],
+          "outputs": [
+            {"index": 0, "name": "positive", "type": "CONDITIONING"},
+            {"index": 1, "name": "negative", "type": "CONDITIONING"},
+            {"index": 2, "name": "latent", "type": "LATENT"},
+            {"index": 3, "name": "video_frame_offset", "type": "INT"}
+          ],
+          "output_count": 4,
+          "evidence": {"path": "comfy_extras/nodes_scail.py", "symbol": "WanSCAILToVideo", "lines": "141-180"}
+        },
+        {
+          "class": "SCAIL2ColoredMask",
+          "required_inputs": [
+            {"name": "driving_track_data", "type": "SAM3_TRACK_DATA"},
+            {"name": "object_indices", "type": "STRING"},
+            {"name": "sort_by", "type": "COMBO"},
+            {"name": "replacement_mode", "type": "BOOLEAN"}
+          ],
+          "optional_inputs": [
+            {"name": "ref_track_data", "type": "SAM3_TRACK_DATA/MASK"}
+          ],
+          "schema_order": ["driving_track_data", "ref_track_data", "object_indices", "sort_by", "replacement_mode"],
+          "outputs": [
+            {"index": 0, "name": "pose_video_mask", "type": "IMAGE"},
+            {"index": 1, "name": "reference_image_mask", "type": "IMAGE"}
+          ],
+          "output_count": 2,
+          "evidence": {"path": "comfy_extras/nodes_scail.py", "symbol": "SCAIL2ColoredMask", "lines": "273-305"}
+        }
+      ]
+    },
+    {
       "family": "kijai-vanilla",
       "revision": "088128b224\u003242e110d3906c6750e9a3a348a659b",
       "origin": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git",
